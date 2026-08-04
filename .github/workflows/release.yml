@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          gofmt_files="$(gofmt -l .)"
+          if [ -n "$gofmt_files" ]; then
+            printf '%s\n' "The following files are not gofmt-formatted:" >&2
+            printf '%s\n' "$gofmt_files" >&2
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build Windows release package
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          archive="vikunja-skill_${tag}_windows_amd64.zip"
+          release_dir="release"
+
+          mkdir -p "$release_dir"
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o "$release_dir/vikunja-ops.exe" ./cmd/vikunja-ops
+          cp SKILL.md .env.example README.md "$release_dir/"
+          (
+            cd "$release_dir"
+            zip -r "../$archive" vikunja-ops.exe SKILL.md .env.example README.md
+          )
+          sha256sum "$archive" > "$archive.sha256"
+          cp "$archive.sha256" checksums.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          archive="vikunja-skill_${tag}_windows_amd64.zip"
+          gh release create "$tag" "$archive" "$archive.sha256" checksums.txt --verify-tag --generate-notes

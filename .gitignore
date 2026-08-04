@@ -1,0 +1,31 @@
+# Go build artifacts and test output
+bin/
+dist/
+*.exe
+*.test
+*.out
+coverage/
+coverage.txt
+coverage.out
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.plan/
+*.local
+*.local.json
+*.local.yaml
+*.local.yml
+credentials.json
+secrets.json
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
