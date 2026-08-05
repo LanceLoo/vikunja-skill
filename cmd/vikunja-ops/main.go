@@ -39,6 +39,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if remaining[0] == "projects" {
 		return runProjects(remaining[1:], stdout, stderr)
 	}
+	if remaining[0] == "labels" {
+		return runLabels(remaining[1:], stdout, stderr)
+	}
 	if remaining[0] == "tasks" {
 		return runTasks(remaining[1:], stdout, stderr)
 	}
@@ -236,6 +239,12 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		return runTasksList(args[1:], stdout, stderr)
 	case "get":
 		return runTasksGet(args[1:], stdout, stderr)
+	case "labels":
+		return runTaskLabels(args[1:], stdout, stderr)
+	case "comments":
+		return runTaskComments(args[1:], stdout, stderr)
+	case "attachments":
+		return runTaskAttachments(args[1:], stdout, stderr)
 	default:
 		printTasksUsage(stderr)
 		return 2
@@ -341,6 +350,201 @@ func printTasksError(command string, err error, stderr io.Writer) int {
 	return printResourceError(command, err, "任务读取被拒绝", "任务或项目不存在", stderr)
 }
 
+func runLabels(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printLabelsUsage(stdout)
+		return 0
+	}
+	if len(args) == 0 || args[0] != "list" {
+		printLabelsUsage(stderr)
+		return 2
+	}
+	return runLabelsList(args[1:], stdout, stderr)
+}
+
+func runLabelsList(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("labels list", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	page, perPage := bindPaginationFlags(flags)
+	query := flags.String("q", "", "搜索文本")
+	format := flags.String("format", "", "描述格式（html 或 markdown）")
+	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			printLabelsListUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printLabelsListUsage(stderr)
+		return 2
+	}
+	if flags.NArg() != 0 || !validPagination(*page, *perPage) || !validLabelFormat(*format) {
+		printLabelsListUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "labels list: %v\n", err)
+		return 1
+	}
+	labels, err := client.New(nil).ListLabels(cfg.BaseURL, cfg.Token, *page, *perPage, *query, *format)
+	if err != nil {
+		return printLabelsError("labels list", err, stderr)
+	}
+	return writeJSON("labels list", labels, stdout, stderr)
+}
+
+func runTaskLabels(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTaskLabelsUsage(stdout)
+		return 0
+	}
+	if len(args) == 0 {
+		printTaskLabelsUsage(stderr)
+		return 2
+	}
+	taskID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil || taskID < 1 {
+		fmt.Fprintln(stderr, "tasks labels: task-id 必须是正整数")
+		printTaskLabelsUsage(stderr)
+		return 2
+	}
+	flags := flag.NewFlagSet("tasks labels", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	page, perPage := bindPaginationFlags(flags)
+	query := flags.String("q", "", "搜索文本")
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			printTaskLabelsUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printTaskLabelsUsage(stderr)
+		return 2
+	}
+	if flags.NArg() != 0 || !validPagination(*page, *perPage) {
+		printTaskLabelsUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks labels: %v\n", err)
+		return 1
+	}
+	labels, err := client.New(nil).ListTaskLabels(cfg.BaseURL, cfg.Token, taskID, *page, *perPage, *query)
+	if err != nil {
+		return printLabelsError("tasks labels", err, stderr)
+	}
+	return writeJSON("tasks labels", labels, stdout, stderr)
+}
+
+func runTaskComments(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTaskCommentsUsage(stdout)
+		return 0
+	}
+	if len(args) == 0 {
+		printTaskCommentsUsage(stderr)
+		return 2
+	}
+	taskID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil || taskID < 1 {
+		fmt.Fprintln(stderr, "tasks comments: task-id 必须是正整数")
+		printTaskCommentsUsage(stderr)
+		return 2
+	}
+	flags := flag.NewFlagSet("tasks comments", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	page, perPage := bindPaginationFlags(flags)
+	query := flags.String("q", "", "搜索文本")
+	orderBy := flags.String("order-by", "", "排序方向（asc 或 desc）")
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			printTaskCommentsUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printTaskCommentsUsage(stderr)
+		return 2
+	}
+	if flags.NArg() != 0 || !validPagination(*page, *perPage) || !validOrderBy(*orderBy) {
+		printTaskCommentsUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks comments: %v\n", err)
+		return 1
+	}
+	comments, err := client.New(nil).ListTaskComments(cfg.BaseURL, cfg.Token, taskID, *page, *perPage, *query, *orderBy)
+	if err != nil {
+		return printCommentsError("tasks comments", err, stderr)
+	}
+	return writeJSON("tasks comments", comments, stdout, stderr)
+}
+
+func runTaskAttachments(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTaskAttachmentsUsage(stdout)
+		return 0
+	}
+	if len(args) == 0 {
+		printTaskAttachmentsUsage(stderr)
+		return 2
+	}
+	taskID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil || taskID < 1 {
+		fmt.Fprintln(stderr, "tasks attachments: task-id 必须是正整数")
+		printTaskAttachmentsUsage(stderr)
+		return 2
+	}
+	flags := flag.NewFlagSet("tasks attachments", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	page, perPage := bindPaginationFlags(flags)
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			printTaskAttachmentsUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printTaskAttachmentsUsage(stderr)
+		return 2
+	}
+	if flags.NArg() != 0 || !validPagination(*page, *perPage) {
+		printTaskAttachmentsUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks attachments: %v\n", err)
+		return 1
+	}
+	attachments, err := client.New(nil).ListTaskAttachments(cfg.BaseURL, cfg.Token, taskID, *page, *perPage)
+	if err != nil {
+		return printAttachmentsError("tasks attachments", err, stderr)
+	}
+	return writeJSON("tasks attachments", attachments, stdout, stderr)
+}
+
+func printLabelsError(command string, err error, stderr io.Writer) int {
+	return printResourceError(command, err, "标签读取被拒绝", "标签或任务不存在", stderr)
+}
+
+func printCommentsError(command string, err error, stderr io.Writer) int {
+	return printResourceError(command, err, "评论读取被拒绝", "任务或评论不存在", stderr)
+}
+
+func printAttachmentsError(command string, err error, stderr io.Writer) int {
+	return printResourceError(command, err, "附件读取被拒绝", "任务或附件不存在", stderr)
+}
+
+func validLabelFormat(format string) bool {
+	return format == "" || format == "html" || format == "markdown"
+}
+
+func validOrderBy(orderBy string) bool {
+	return orderBy == "" || orderBy == "asc" || orderBy == "desc"
+}
+
 func printUsage(out io.Writer) {
 	fmt.Fprintln(out, "vikunja-ops: Vikunja CLI")
 	fmt.Fprintln(out, "")
@@ -350,6 +554,7 @@ func printUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops --help")
 	fmt.Fprintln(out, "  vikunja-ops doctor")
 	fmt.Fprintln(out, "  vikunja-ops projects --help")
+	fmt.Fprintln(out, "  vikunja-ops labels --help")
 	fmt.Fprintln(out, "  vikunja-ops tasks --help")
 }
 
@@ -384,8 +589,47 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
 	fmt.Fprintln(out, "  vikunja-ops tasks list [--project N] [--page N] [--per-page N] [--query TEXT] [--filter EXPR] [--filter-timezone TZ] [--include-nulls] [--sort-by FIELD]... [--order-by asc|desc]...")
 	fmt.Fprintln(out, "  vikunja-ops tasks get <id>  (id 为正整数)")
+	fmt.Fprintln(out, "  vikunja-ops tasks labels <task-id> [--page N] [--per-page N] [--q TEXT]")
+	fmt.Fprintln(out, "  vikunja-ops tasks comments <task-id> [--page N] [--per-page N] [--q TEXT] [--order-by asc|desc]")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "读取 Vikunja 任务；仅发送 GET 请求。")
+}
+
+func printLabelsUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops labels list [--page N] [--per-page N] [--q TEXT] [--format html|markdown]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "读取 Vikunja 标签；仅发送 GET 请求。")
+}
+
+func printLabelsListUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops labels list [--page N] [--per-page N] [--q TEXT] [--format html|markdown]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "page 必须大于等于 1；per-page 必须在 1 到 1000 之间。")
+	fmt.Fprintln(out, "format 仅可为 html 或 markdown；省略时不发送该参数。")
+}
+
+func printTaskLabelsUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks labels <task-id> [--page N] [--per-page N] [--q TEXT]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "task-id 必须是正整数；page 必须大于等于 1；per-page 必须在 1 到 1000 之间。")
+}
+
+func printTaskCommentsUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks comments <task-id> [--page N] [--per-page N] [--q TEXT] [--order-by asc|desc]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "task-id 必须是正整数；page 必须大于等于 1；per-page 必须在 1 到 1000 之间；order-by 仅可为 asc 或 desc。")
+}
+
+func printTaskAttachmentsUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "task-id 必须是正整数；page 必须大于等于 1；per-page 必须在 1 到 1000 之间。")
 }
 
 func printTasksListUsage(out io.Writer) {
