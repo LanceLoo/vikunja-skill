@@ -117,8 +117,7 @@ func runProjects(args []string, stdout, stderr io.Writer) int {
 func runProjectsList(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("projects list", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	page := flags.Int("page", 1, "页码（默认 1）")
-	perPage := flags.Int("per-page", 50, "每页条目数（默认 50）")
+	page, perPage := bindPaginationFlags(flags)
 	flags.Usage = func() { printProjectsListUsage(flags.Output()) }
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -129,7 +128,7 @@ func runProjectsList(args []string, stdout, stderr io.Writer) int {
 		printProjectsListUsage(stderr)
 		return 2
 	}
-	if flags.NArg() != 0 || *page < 1 || *perPage < 1 || *perPage > 1000 {
+	if flags.NArg() != 0 || !validPagination(*page, *perPage) {
 		printProjectsListUsage(stderr)
 		return 2
 	}
@@ -143,11 +142,7 @@ func runProjectsList(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printProjectsError("projects list", err, stderr)
 	}
-	if err := json.NewEncoder(stdout).Encode(projects); err != nil {
-		fmt.Fprintf(stderr, "projects list: 无法输出 JSON: %v\n", err)
-		return 1
-	}
-	return 0
+	return writeJSON("projects list", projects, stdout, stderr)
 }
 
 func runProjectsGet(args []string, stdout, stderr io.Writer) int {
@@ -175,21 +170,37 @@ func runProjectsGet(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printProjectsError("projects get", err, stderr)
 	}
-	if err := json.NewEncoder(stdout).Encode(project); err != nil {
-		fmt.Fprintf(stderr, "projects get: 无法输出 JSON: %v\n", err)
+	return writeJSON("projects get", project, stdout, stderr)
+}
+
+func printProjectsError(command string, err error, stderr io.Writer) int {
+	return printResourceError(command, err, "项目读取被拒绝", "项目不存在", stderr)
+}
+
+func bindPaginationFlags(flags *flag.FlagSet) (page, perPage *int) {
+	return flags.Int("page", 1, "页码（默认 1）"), flags.Int("per-page", 50, "每页条目数（默认 50）")
+}
+
+func validPagination(page, perPage int) bool {
+	return page >= 1 && perPage >= 1 && perPage <= 1000
+}
+
+func writeJSON(command string, value any, stdout, stderr io.Writer) int {
+	if err := json.NewEncoder(stdout).Encode(value); err != nil {
+		fmt.Fprintf(stderr, "%s: 无法输出 JSON: %v\n", command, err)
 		return 1
 	}
 	return 0
 }
 
-func printProjectsError(command string, err error, stderr io.Writer) int {
+func printResourceError(command string, err error, forbiddenMessage, notFoundMessage string, stderr io.Writer) int {
 	switch {
 	case errors.Is(err, client.ErrUnauthorized):
 		fmt.Fprintf(stderr, "%s: 认证失败：服务未接受 Token\n", command)
 	case errors.Is(err, client.ErrForbidden):
-		fmt.Fprintf(stderr, "%s: 权限不足：项目读取被拒绝\n", command)
+		fmt.Fprintf(stderr, "%s: 权限不足：%s\n", command, forbiddenMessage)
 	case errors.Is(err, client.ErrNotFound):
-		fmt.Fprintf(stderr, "%s: 项目不存在\n", command)
+		fmt.Fprintf(stderr, "%s: %s\n", command, notFoundMessage)
 	default:
 		fmt.Fprintf(stderr, "%s: %v\n", command, err)
 	}
@@ -235,8 +246,7 @@ func runTasksList(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("tasks list", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	projectID := flags.Int64("project", 0, "项目 ID")
-	page := flags.Int("page", 1, "页码（默认 1）")
-	perPage := flags.Int("per-page", 50, "每页条目数（默认 50）")
+	page, perPage := bindPaginationFlags(flags)
 	query := flags.String("query", "", "搜索文本")
 	filter := flags.String("filter", "", "筛选表达式")
 	filterTimezone := flags.String("filter-timezone", "", "筛选时区")
@@ -260,7 +270,7 @@ func runTasksList(args []string, stdout, stderr io.Writer) int {
 			projectSpecified = true
 		}
 	})
-	if flags.NArg() != 0 || (projectSpecified && *projectID < 1) || *page < 1 || *perPage < 1 || *perPage > 1000 || len(sortBy) != len(orderBy) || !validTaskSortOptions(sortBy, orderBy) {
+	if flags.NArg() != 0 || (projectSpecified && *projectID < 1) || !validPagination(*page, *perPage) || len(sortBy) != len(orderBy) || !validTaskSortOptions(sortBy, orderBy) {
 		printTasksListUsage(stderr)
 		return 2
 	}
@@ -284,11 +294,7 @@ func runTasksList(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printTasksError("tasks list", err, stderr)
 	}
-	if err := json.NewEncoder(stdout).Encode(tasks); err != nil {
-		fmt.Fprintf(stderr, "tasks list: 无法输出 JSON: %v\n", err)
-		return 1
-	}
-	return 0
+	return writeJSON("tasks list", tasks, stdout, stderr)
 }
 
 func validTaskSortOptions(sortBy, orderBy []string) bool {
@@ -328,25 +334,11 @@ func runTasksGet(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printTasksError("tasks get", err, stderr)
 	}
-	if err := json.NewEncoder(stdout).Encode(task); err != nil {
-		fmt.Fprintf(stderr, "tasks get: 无法输出 JSON: %v\n", err)
-		return 1
-	}
-	return 0
+	return writeJSON("tasks get", task, stdout, stderr)
 }
 
 func printTasksError(command string, err error, stderr io.Writer) int {
-	switch {
-	case errors.Is(err, client.ErrUnauthorized):
-		fmt.Fprintf(stderr, "%s: 认证失败：服务未接受 Token\n", command)
-	case errors.Is(err, client.ErrForbidden):
-		fmt.Fprintf(stderr, "%s: 权限不足：任务读取被拒绝\n", command)
-	case errors.Is(err, client.ErrNotFound):
-		fmt.Fprintf(stderr, "%s: 任务或项目不存在\n", command)
-	default:
-		fmt.Fprintf(stderr, "%s: %v\n", command, err)
-	}
-	return 1
+	return printResourceError(command, err, "任务读取被拒绝", "任务或项目不存在", stderr)
 }
 
 func printUsage(out io.Writer) {
