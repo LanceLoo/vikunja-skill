@@ -54,6 +54,43 @@ type PaginatedProjects struct {
 	raw json.RawMessage
 }
 
+// Task is the minimal task representation returned by the Vikunja API.
+type Task struct {
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Done        bool   `json:"done"`
+	ProjectID   int64  `json:"project_id"`
+	Created     string `json:"created"`
+	Updated     string `json:"updated"`
+
+	raw json.RawMessage
+}
+
+// PaginatedTasks is a page of tasks returned by the Vikunja API.
+type PaginatedTasks struct {
+	Items      []Task `json:"items"`
+	Total      int    `json:"total"`
+	Page       int    `json:"page"`
+	PerPage    int    `json:"per_page"`
+	TotalPages int    `json:"total_pages"`
+
+	raw json.RawMessage
+}
+
+// TaskListOptions controls a task list request.
+type TaskListOptions struct {
+	Page               int
+	PerPage            int
+	ProjectID          int64
+	Query              string
+	Filter             string
+	FilterTimezone     string
+	FilterIncludeNulls bool
+	SortBy             []string
+	OrderBy            []string
+}
+
 // UnmarshalJSON decodes known fields while retaining the complete API response
 // for faithful re-encoding, including unknown and null fields.
 func (p *Project) UnmarshalJSON(data []byte) error {
@@ -96,6 +133,50 @@ func (p PaginatedProjects) MarshalJSON() ([]byte, error) {
 	}
 	type paginatedProjects PaginatedProjects
 	return json.Marshal(paginatedProjects(p))
+}
+
+// UnmarshalJSON decodes known fields while retaining the complete API response
+// for faithful re-encoding, including unknown and null fields.
+func (t *Task) UnmarshalJSON(data []byte) error {
+	type task Task
+	var decoded task
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*t = Task(decoded)
+	t.raw = append(t.raw[:0], data...)
+	return nil
+}
+
+// MarshalJSON emits the original successful API representation when available.
+func (t Task) MarshalJSON() ([]byte, error) {
+	if t.raw != nil {
+		return t.raw, nil
+	}
+	type task Task
+	return json.Marshal(task(t))
+}
+
+// UnmarshalJSON decodes known pagination fields while retaining the complete
+// API response for faithful re-encoding.
+func (p *PaginatedTasks) UnmarshalJSON(data []byte) error {
+	type paginatedTasks PaginatedTasks
+	var decoded paginatedTasks
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*p = PaginatedTasks(decoded)
+	p.raw = append(p.raw[:0], data...)
+	return nil
+}
+
+// MarshalJSON emits the original successful API representation when available.
+func (p PaginatedTasks) MarshalJSON() ([]byte, error) {
+	if p.raw != nil {
+		return p.raw, nil
+	}
+	type paginatedTasks PaginatedTasks
+	return json.Marshal(paginatedTasks(p))
 }
 
 // Client performs Vikunja API checks.
@@ -183,6 +264,52 @@ func (c *Client) GetProject(baseURL, token string, id int64) (Project, error) {
 	return project, nil
 }
 
+// ListTasks retrieves one page of tasks, optionally scoped to a project.
+func (c *Client) ListTasks(baseURL, token string, options TaskListOptions) (PaginatedTasks, error) {
+	if err := validateTaskListOptions(options); err != nil {
+		return PaginatedTasks{}, err
+	}
+	target, err := tasksListEndpoint(baseURL, options)
+	if err != nil {
+		return PaginatedTasks{}, errors.New("cannot create tasks request")
+	}
+	response, err := c.get(target, token)
+	if err != nil {
+		return PaginatedTasks{}, err
+	}
+	defer response.Body.Close()
+	if err := projectsResponseError(response, "tasks list request"); err != nil {
+		return PaginatedTasks{}, err
+	}
+
+	var tasks PaginatedTasks
+	if err := json.NewDecoder(response.Body).Decode(&tasks); err != nil {
+		return PaginatedTasks{}, errors.New("cannot decode tasks response")
+	}
+	return tasks, nil
+}
+
+// GetTask retrieves a task by its API identifier.
+func (c *Client) GetTask(baseURL, token string, id int64) (Task, error) {
+	if id < 1 {
+		return Task{}, errors.New("task id must be positive")
+	}
+	response, err := c.get(taskEndpoint(baseURL, id), token)
+	if err != nil {
+		return Task{}, err
+	}
+	defer response.Body.Close()
+	if err := projectsResponseError(response, "task request"); err != nil {
+		return Task{}, err
+	}
+
+	var task Task
+	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+		return Task{}, errors.New("cannot decode task response")
+	}
+	return task, nil
+}
+
 func (c *Client) checkTokenEndpoint(target, token, operation string) error {
 	response, err := c.get(target, token)
 	if err != nil {
@@ -244,6 +371,65 @@ func projectsListEndpoint(baseURL string, page, perPage int) (string, error) {
 
 func projectEndpoint(baseURL string, id int64) string {
 	return endpoint(baseURL, "projects") + "/" + strconv.FormatInt(id, 10)
+}
+
+func tasksListEndpoint(baseURL string, options TaskListOptions) (string, error) {
+	path := "tasks"
+	if options.ProjectID > 0 {
+		path = "projects/" + strconv.FormatInt(options.ProjectID, 10) + "/tasks"
+	}
+	u, err := url.Parse(endpoint(baseURL, path))
+	if err != nil {
+		return "", err
+	}
+	query := u.Query()
+	query.Set("page", strconv.Itoa(options.Page))
+	query.Set("per_page", strconv.Itoa(options.PerPage))
+	if options.Query != "" {
+		query.Set("q", options.Query)
+	}
+	if options.Filter != "" {
+		query.Set("filter", options.Filter)
+	}
+	if options.FilterTimezone != "" {
+		query.Set("filter_timezone", options.FilterTimezone)
+	}
+	if options.FilterIncludeNulls {
+		query.Set("filter_include_nulls", "true")
+	}
+	for _, sortBy := range options.SortBy {
+		query.Add("sort_by", sortBy)
+	}
+	for _, orderBy := range options.OrderBy {
+		query.Add("order_by", orderBy)
+	}
+	u.RawQuery = query.Encode()
+	return u.String(), nil
+}
+
+func taskEndpoint(baseURL string, id int64) string {
+	return endpoint(baseURL, "tasks") + "/" + strconv.FormatInt(id, 10)
+}
+
+func validateTaskListOptions(options TaskListOptions) error {
+	if options.Page < 1 || options.PerPage < 1 || options.PerPage > 1000 {
+		return errors.New("page must be positive, and per_page must be between 1 and 1000")
+	}
+	if options.ProjectID < 0 {
+		return errors.New("project id must not be negative")
+	}
+	if len(options.SortBy) != len(options.OrderBy) {
+		return errors.New("sort_by and order_by must have the same number of values")
+	}
+	for i := range options.SortBy {
+		if strings.TrimSpace(options.SortBy[i]) == "" || strings.TrimSpace(options.OrderBy[i]) == "" {
+			return errors.New("sort_by and order_by values must not be empty")
+		}
+		if options.OrderBy[i] != "asc" && options.OrderBy[i] != "desc" {
+			return errors.New("order_by values must be asc or desc")
+		}
+	}
+	return nil
 }
 
 func projectsResponseError(response *http.Response, operation string) error {

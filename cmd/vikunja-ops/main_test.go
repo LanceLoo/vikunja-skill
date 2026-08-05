@@ -146,3 +146,160 @@ func TestProjectsHelpWritesOnlyStdout(t *testing.T) {
 		}
 	}
 }
+
+func TestTasksList(t *testing.T) {
+	token := "test-secret-token"
+	var requests []struct {
+		path  string
+		query url.Values
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		requests = append(requests, struct {
+			path  string
+			query url.Values
+		}{r.URL.Path, r.URL.Query()})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"items":[],"total":0,"page":1,"per_page":50,"total_pages":0}`))
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", token)
+
+	cases := [][]string{
+		{"tasks", "list"},
+		{"tasks", "list", "--project", "7", "--page", "2", "--per-page", "25", "--query", "review", "--filter", "done = false", "--filter-timezone", "Asia/Shanghai", "--include-nulls", "--sort-by", "priority", "--order-by", "desc", "--sort-by", "title", "--order-by", "asc"},
+	}
+	for _, args := range cases {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 0 {
+			t.Fatalf("run(%v) = %d, stderr %q", args, code, stderr.String())
+		}
+		if stderr.Len() != 0 || !strings.HasSuffix(stdout.String(), "\n") {
+			t.Fatalf("output = stdout %q stderr %q", stdout.String(), stderr.String())
+		}
+		var value any
+		if err := json.Unmarshal(stdout.Bytes(), &value); err != nil {
+			t.Fatalf("stdout is not JSON: %v", err)
+		}
+	}
+	if len(requests) != len(cases) {
+		t.Fatalf("requests = %d, want %d", len(requests), len(cases))
+	}
+	if requests[0].path != "/api/v2/tasks" || requests[0].query.Get("page") != "1" || requests[0].query.Get("per_page") != "50" {
+		t.Errorf("default request = %s?%s", requests[0].path, requests[0].query.Encode())
+	}
+	got := requests[1]
+	if got.path != "/api/v2/projects/7/tasks" {
+		t.Errorf("project request path = %q", got.path)
+	}
+	if got.query.Get("page") != "2" || got.query.Get("per_page") != "25" || got.query.Get("q") != "review" || got.query.Get("filter") != "done = false" || got.query.Get("filter_timezone") != "Asia/Shanghai" || got.query.Get("filter_include_nulls") != "true" {
+		t.Errorf("full query = %v", got.query)
+	}
+	if strings.Join(got.query["sort_by"], ",") != "priority,title" || strings.Join(got.query["order_by"], ",") != "desc,asc" {
+		t.Errorf("sort query = %v", got.query)
+	}
+}
+
+func TestTasksGetAndNotFound(t *testing.T) {
+	token := "test-secret-token"
+	status := http.StatusOK
+	requests := 0
+	const response = `{"id":42,"title":"Task","unknown_field":{"preserved":true}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/tasks/42" {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			_, _ = w.Write([]byte(response))
+		}
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", token)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"tasks", "get", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	var task, expected any
+	if err := json.Unmarshal(stdout.Bytes(), &task); err != nil {
+		t.Fatalf("task output is not JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(response), &expected); err != nil || !jsonEqual(task, expected) {
+		t.Fatalf("task output = %q, error = %v", stdout.String(), err)
+	}
+
+	status = http.StatusNotFound
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"tasks", "get", "42"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("404 code = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "任务或项目不存在") || strings.Contains(stderr.String(), token) || stdout.Len() != 0 {
+		t.Fatalf("unsafe 404 output: stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
+
+func TestTasksInvalidArgumentsDoNotRequest(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+
+	for _, args := range [][]string{
+		{"tasks", "list", "--project", "0"},
+		{"tasks", "list", "--project", "-1"},
+		{"tasks", "list", "--sort-by", "title"},
+		{"tasks", "list", "--order-by", "asc"},
+		{"tasks", "list", "--sort-by", ""},
+		{"tasks", "list", "--sort-by", "   ", "--order-by", "asc"},
+		{"tasks", "list", "--sort-by", "title", "--order-by", "   "},
+		{"tasks", "list", "--sort-by", "title", "--order-by", "sideways"},
+		{"tasks", "list", "--page", "0"},
+		{"tasks", "list", "--per-page", "1001"},
+		{"tasks", "get", "0"},
+		{"tasks", "get", "-1"},
+		{"tasks", "get", "abc"},
+		{"tasks", "get", "9223372036854775808"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 {
+			t.Errorf("run(%v) = %d, want 2", args, code)
+		}
+		if stdout.Len() != 0 || stderr.Len() == 0 {
+			t.Errorf("run(%v): stdout %q stderr %q", args, stdout.String(), stderr.String())
+		}
+	}
+	if requests != 0 {
+		t.Errorf("invalid arguments made %d HTTP requests, want 0", requests)
+	}
+}
+
+func TestTasksHelpWritesOnlyStdout(t *testing.T) {
+	for _, args := range [][]string{{"tasks", "--help"}, {"tasks", "list", "--help"}, {"tasks", "get", "--help"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 0 {
+			t.Errorf("run(%v) = %d, want 0", args, code)
+		}
+		if stdout.Len() == 0 || stderr.Len() != 0 {
+			t.Errorf("run(%v): stdout %q stderr %q", args, stdout.String(), stderr.String())
+		}
+	}
+}
