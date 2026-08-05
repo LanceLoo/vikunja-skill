@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"vikunja-opencode-skill/internal/client"
 	"vikunja-opencode-skill/internal/config"
@@ -32,6 +34,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(remaining) == 0 {
 		printUsage(stdout)
 		return 0
+	}
+	if remaining[0] == "projects" {
+		return runProjects(remaining[1:], stdout, stderr)
 	}
 	if remaining[0] != "doctor" {
 		printUsage(stderr)
@@ -84,6 +89,109 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runProjects(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		printProjectsUsage(stderr)
+		return 2
+	}
+	if len(args) == 1 && args[0] == "--help" {
+		printProjectsUsage(stdout)
+		return 0
+	}
+
+	switch args[0] {
+	case "list":
+		return runProjectsList(args[1:], stdout, stderr)
+	case "get":
+		return runProjectsGet(args[1:], stdout, stderr)
+	default:
+		printProjectsUsage(stderr)
+		return 2
+	}
+}
+
+func runProjectsList(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("projects list", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	page := flags.Int("page", 1, "页码（默认 1）")
+	perPage := flags.Int("per-page", 50, "每页条目数（默认 50）")
+	flags.Usage = func() { printProjectsListUsage(flags.Output()) }
+	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			printProjectsListUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printProjectsListUsage(stderr)
+		return 2
+	}
+	if flags.NArg() != 0 || *page < 1 || *perPage < 1 || *perPage > 1000 {
+		printProjectsListUsage(stderr)
+		return 2
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "projects list: %v\n", err)
+		return 1
+	}
+	projects, err := client.New(nil).ListProjects(cfg.BaseURL, cfg.Token, *page, *perPage)
+	if err != nil {
+		return printProjectsError("projects list", err, stderr)
+	}
+	if err := json.NewEncoder(stdout).Encode(projects); err != nil {
+		fmt.Fprintf(stderr, "projects list: 无法输出 JSON: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runProjectsGet(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printProjectsGetUsage(stdout)
+		return 0
+	}
+	if len(args) != 1 {
+		printProjectsGetUsage(stderr)
+		return 2
+	}
+	id, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil || id < 0 {
+		fmt.Fprintln(stderr, "projects get: id 必须是非负整数")
+		printProjectsGetUsage(stderr)
+		return 2
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "projects get: %v\n", err)
+		return 1
+	}
+	project, err := client.New(nil).GetProject(cfg.BaseURL, cfg.Token, id)
+	if err != nil {
+		return printProjectsError("projects get", err, stderr)
+	}
+	if err := json.NewEncoder(stdout).Encode(project); err != nil {
+		fmt.Fprintf(stderr, "projects get: 无法输出 JSON: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func printProjectsError(command string, err error, stderr io.Writer) int {
+	switch {
+	case errors.Is(err, client.ErrUnauthorized):
+		fmt.Fprintf(stderr, "%s: 认证失败：服务未接受 Token\n", command)
+	case errors.Is(err, client.ErrForbidden):
+		fmt.Fprintf(stderr, "%s: 权限不足：项目读取被拒绝\n", command)
+	case errors.Is(err, client.ErrNotFound):
+		fmt.Fprintf(stderr, "%s: 项目不存在\n", command)
+	default:
+		fmt.Fprintf(stderr, "%s: %v\n", command, err)
+	}
+	return 1
+}
+
 func printUsage(out io.Writer) {
 	fmt.Fprintln(out, "vikunja-ops: Vikunja CLI")
 	fmt.Fprintln(out, "")
@@ -92,6 +200,7 @@ func printUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
 	fmt.Fprintln(out, "  vikunja-ops --help")
 	fmt.Fprintln(out, "  vikunja-ops doctor")
+	fmt.Fprintln(out, "  vikunja-ops projects --help")
 }
 
 func printDoctorUsage(out io.Writer) {
@@ -99,4 +208,24 @@ func printDoctorUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops doctor")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "检查配置、OpenAPI 可访问性和 Token 验证；仅发送 GET 请求。")
+}
+
+func printProjectsUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops projects list [--page N] [--per-page N]")
+	fmt.Fprintln(out, "  vikunja-ops projects get <id>  (id 为非负整数)")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "读取 Vikunja 项目；仅发送 GET 请求。")
+}
+
+func printProjectsListUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops projects list [--page N] [--per-page N]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "page 必须大于等于 1；per-page 必须在 1 到 1000 之间。")
+}
+
+func printProjectsGetUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops projects get <id>  (id 为非负整数)")
 }
