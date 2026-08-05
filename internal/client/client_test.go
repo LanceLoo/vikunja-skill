@@ -311,6 +311,29 @@ func TestListTasksRejectsInvalidSortOptionsBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestListTasksResponseStatuses(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		want   error
+	}{
+		{http.StatusUnauthorized, ErrUnauthorized},
+		{http.StatusForbidden, ErrForbidden},
+		{http.StatusNotFound, ErrNotFound},
+	} {
+		t.Run(http.StatusText(test.status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(test.status)
+			}))
+			defer server.Close()
+
+			_, err := New(server.Client()).ListTasks(server.URL, "fake-token", TaskListOptions{Page: 1, PerPage: 1})
+			if !errors.Is(err, test.want) {
+				t.Errorf("ListTasks() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
 func TestGetTaskStatusesValidationAndRedirectSafety(t *testing.T) {
 	for _, id := range []int64{-1, 0} {
 		if _, err := New(nil).GetTask("https://example.test", "fake-token", id); err == nil || !strings.Contains(err.Error(), "positive") {

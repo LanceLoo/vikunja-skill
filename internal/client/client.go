@@ -235,7 +235,7 @@ func (c *Client) ListProjects(baseURL, token string, page, perPage int) (Paginat
 		return PaginatedProjects{}, err
 	}
 	defer response.Body.Close()
-	if err := projectsResponseError(response, "projects list request"); err != nil {
+	if err := responseError(response, "projects list request"); err != nil {
 		return PaginatedProjects{}, err
 	}
 
@@ -253,7 +253,7 @@ func (c *Client) GetProject(baseURL, token string, id int64) (Project, error) {
 		return Project{}, err
 	}
 	defer response.Body.Close()
-	if err := projectsResponseError(response, "project request"); err != nil {
+	if err := responseError(response, "project request"); err != nil {
 		return Project{}, err
 	}
 
@@ -278,7 +278,7 @@ func (c *Client) ListTasks(baseURL, token string, options TaskListOptions) (Pagi
 		return PaginatedTasks{}, err
 	}
 	defer response.Body.Close()
-	if err := projectsResponseError(response, "tasks list request"); err != nil {
+	if err := responseError(response, "tasks list request"); err != nil {
 		return PaginatedTasks{}, err
 	}
 
@@ -299,7 +299,7 @@ func (c *Client) GetTask(baseURL, token string, id int64) (Task, error) {
 		return Task{}, err
 	}
 	defer response.Body.Close()
-	if err := projectsResponseError(response, "task request"); err != nil {
+	if err := responseError(response, "task request"); err != nil {
 		return Task{}, err
 	}
 
@@ -432,7 +432,7 @@ func validateTaskListOptions(options TaskListOptions) error {
 	return nil
 }
 
-func projectsResponseError(response *http.Response, operation string) error {
+func responseError(response *http.Response, operation string) error {
 	switch response.StatusCode {
 	case http.StatusUnauthorized:
 		return ErrUnauthorized
