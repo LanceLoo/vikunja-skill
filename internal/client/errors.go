@@ -38,6 +38,7 @@ func safeURL(raw string) string {
 	if err != nil {
 		return "Vikunja endpoint"
 	}
+	u.User = nil
 	u.RawQuery, u.Fragment = "", ""
 	return u.String()
 }

@@ -95,6 +95,16 @@ func TestTransportErrorIsSafe(t *testing.T) {
 	}
 }
 
+func TestSafeURLRedactsUserinfoQueryAndFragment(t *testing.T) {
+	got := safeURL("https://user:password@host.example/path?query=secret#fragment")
+	if strings.Contains(got, "user") || strings.Contains(got, "password") || strings.Contains(got, "query") || strings.Contains(got, "fragment") {
+		t.Fatalf("unsafe URL: %q", got)
+	}
+	if got != "https://host.example/path" {
+		t.Fatalf("safe URL = %q", got)
+	}
+}
+
 func TestRedirectsAreNotFollowedAndTokenIsSafe(t *testing.T) {
 	targetRequested := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
