@@ -12,10 +12,14 @@ func printUsage(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "用法:")
 	fmt.Fprintln(out, "  vikunja-ops --help")
+	fmt.Fprintln(out, "  vikunja-ops --pretty <command> ...")
 	fmt.Fprintln(out, "  vikunja-ops doctor")
 	fmt.Fprintln(out, "  vikunja-ops projects --help")
 	fmt.Fprintln(out, "  vikunja-ops labels --help")
 	fmt.Fprintln(out, "  vikunja-ops tasks --help")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "全局选项:")
+	fmt.Fprintln(out, "  --pretty  必须置于命令前；以两空格缩进输出成功的 JSON 结果。")
 }
 func printDoctorUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")

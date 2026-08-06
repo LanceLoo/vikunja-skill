@@ -19,6 +19,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("vikunja-ops", flag.ContinueOnError)
 	flags.SetOutput(stdout)
 	flags.Usage = func() { printUsage(flags.Output()) }
+	pretty := flags.Bool("pretty", false, "以两空格缩进输出 JSON")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -29,6 +30,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(remaining) == 0 {
 		printUsage(stdout)
 		return 0
+	}
+	if *pretty {
+		stdout = prettyJSONWriter{Writer: stdout}
 	}
 	switch remaining[0] {
 	case "projects":

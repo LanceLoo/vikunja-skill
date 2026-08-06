@@ -102,6 +102,16 @@ func TestTasksGetAndNotFound(t *testing.T) {
 	if err := json.Unmarshal([]byte(response), &expected); err != nil || !jsonEqual(task, expected) {
 		t.Fatalf("task output = %q, error = %v", stdout.String(), err)
 	}
+	if got, want := stdout.String(), response+"\n"; got != want {
+		t.Errorf("non-pretty output = %q, want unchanged compact JSON %q", got, want)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--pretty", "tasks", "get", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("pretty get: code = %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	assertPrettyJSON(t, stdout.Bytes())
 
 	status = http.StatusNotFound
 	stdout.Reset()
@@ -112,8 +122,29 @@ func TestTasksGetAndNotFound(t *testing.T) {
 	if !strings.Contains(stderr.String(), "任务或项目不存在") || strings.Contains(stderr.String(), token) || stdout.Len() != 0 {
 		t.Fatalf("unsafe 404 output: stdout %q stderr %q", stdout.String(), stderr.String())
 	}
-	if requests != 2 {
-		t.Fatalf("requests = %d, want 2", requests)
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestTasksPrettyInvalidArgumentsWriteOnlyStderr(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--pretty", "tasks", "get", "not-an-id"}, &stdout, &stderr); code != 2 {
+		t.Errorf("run() = %d, want 2", code)
+	}
+	if stdout.Len() != 0 || stderr.Len() == 0 {
+		t.Errorf("pretty invalid-argument output: stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+	if requests != 0 {
+		t.Errorf("pretty invalid arguments made %d HTTP requests, want 0", requests)
 	}
 }
 
@@ -188,9 +219,9 @@ func TestTaskMutationsPreviewDoesNotWrite(t *testing.T) {
 		args []string
 		want map[string]any
 	}{
-		{[]string{"tasks", "create", "7", "--title", "New", "--description", "details", "--priority", "2", "--due-date", "2026-08-06T10:00:00Z"}, map[string]any{"mode": "preview", "operation": "create", "project_id": float64(7), "changes": map[string]any{"title": "New", "description": "details", "priority": float64(2), "due_date": "2026-08-06T10:00:00Z"}}},
-		{[]string{"tasks", "update", "42", "--title", "Updated"}, map[string]any{"mode": "preview", "operation": "update", "task_id": float64(42), "current": map[string]any{"id": float64(42), "title": "Current", "done": false}, "changes": map[string]any{"title": "Updated"}}},
-		{[]string{"tasks", "complete", "42"}, map[string]any{"mode": "preview", "operation": "complete", "task_id": float64(42), "current": map[string]any{"id": float64(42), "title": "Current", "done": false}, "changes": map[string]any{"done": true}}},
+		{[]string{"--pretty", "tasks", "create", "7", "--title", "New", "--description", "details", "--priority", "2", "--due-date", "2026-08-06T10:00:00Z"}, map[string]any{"mode": "preview", "operation": "create", "project_id": float64(7), "changes": map[string]any{"title": "New", "description": "details", "priority": float64(2), "due_date": "2026-08-06T10:00:00Z"}}},
+		{[]string{"--pretty", "tasks", "update", "42", "--title", "Updated"}, map[string]any{"mode": "preview", "operation": "update", "task_id": float64(42), "current": map[string]any{"id": float64(42), "title": "Current", "done": false}, "changes": map[string]any{"title": "Updated"}}},
+		{[]string{"--pretty", "tasks", "complete", "42"}, map[string]any{"mode": "preview", "operation": "complete", "task_id": float64(42), "current": map[string]any{"id": float64(42), "title": "Current", "done": false}, "changes": map[string]any{"done": true}}},
 	}
 	for _, test := range cases {
 		var stdout, stderr bytes.Buffer
@@ -204,6 +235,7 @@ func TestTaskMutationsPreviewDoesNotWrite(t *testing.T) {
 		if !jsonEqual(preview, test.want) {
 			t.Errorf("preview for %v = %#v, want %#v", test.args, preview, test.want)
 		}
+		assertPrettyJSON(t, stdout.Bytes())
 	}
 	if len(requests) != 2 { // create needs no request; update and complete read current state.
 		t.Fatalf("requests = %#v, want exactly two GET requests", requests)
@@ -232,9 +264,9 @@ func TestTaskMutationsApplyWrites(t *testing.T) {
 	t.Setenv("VIKUNJA_TOKEN", token)
 
 	for _, args := range [][]string{
-		{"tasks", "create", "7", "--title", "New", "--due-date", "2026-08-06T10:00:00Z", "--apply"},
-		{"tasks", "update", "42", "--description", "Changed", "--apply"},
-		{"tasks", "complete", "42", "--apply"},
+		{"--pretty", "tasks", "create", "7", "--title", "New", "--due-date", "2026-08-06T10:00:00Z", "--apply"},
+		{"--pretty", "tasks", "update", "42", "--description", "Changed", "--apply"},
+		{"--pretty", "tasks", "complete", "42", "--apply"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
@@ -244,6 +276,7 @@ func TestTaskMutationsApplyWrites(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &task); err != nil || task["id"] != float64(42) {
 			t.Fatalf("apply output = %q, error = %v", stdout.String(), err)
 		}
+		assertPrettyJSON(t, stdout.Bytes())
 	}
 	if len(requests) != 3 {
 		t.Fatalf("write requests = %d, want 3", len(requests))

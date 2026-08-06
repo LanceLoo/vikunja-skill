@@ -16,8 +16,16 @@ func bindPaginationFlags(flags *flag.FlagSet) (page, perPage *int) {
 
 func validPagination(page, perPage int) bool { return page >= 1 && perPage >= 1 && perPage <= 1000 }
 
+type prettyJSONWriter struct {
+	io.Writer
+}
+
 func writeJSON(command string, value any, stdout, stderr io.Writer) int {
-	if err := json.NewEncoder(stdout).Encode(value); err != nil {
+	encoder := json.NewEncoder(stdout)
+	if _, ok := stdout.(prettyJSONWriter); ok {
+		encoder.SetIndent("", "  ")
+	}
+	if err := encoder.Encode(value); err != nil {
 		fmt.Fprintf(stderr, "%s: 无法输出 JSON: %v\n", command, err)
 		return 1
 	}

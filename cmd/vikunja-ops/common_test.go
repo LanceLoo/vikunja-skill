@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"strings"
 	"testing"
 
 	"vikunja-opencode-skill/internal/client"
@@ -56,4 +57,19 @@ func jsonEqual(left, right any) bool {
 	leftJSON, _ := json.Marshal(left)
 	rightJSON, _ := json.Marshal(right)
 	return bytes.Equal(leftJSON, rightJSON)
+}
+
+func assertPrettyJSON(t *testing.T, output []byte) {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal(output, &value); err != nil {
+		t.Fatalf("output is not JSON: %v; output %q", err, output)
+	}
+	text := string(output)
+	if !strings.HasSuffix(text, "\n") {
+		t.Errorf("pretty JSON does not end with a newline: %q", text)
+	}
+	if !strings.Contains(text, "\n  \"") {
+		t.Errorf("pretty JSON does not use a two-space top-level indent: %q", text)
+	}
 }
