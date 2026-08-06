@@ -156,7 +156,7 @@ func TestTasksInvalidArgumentsDoNotRequest(t *testing.T) {
 }
 
 func TestTasksHelpWritesOnlyStdout(t *testing.T) {
-	for _, args := range [][]string{{"tasks", "--help"}, {"tasks", "list", "--help"}, {"tasks", "get", "--help"}} {
+	for _, args := range [][]string{{"tasks", "--help"}, {"tasks", "list", "--help"}, {"tasks", "get", "--help"}, {"tasks", "create", "--help"}, {"tasks", "update", "--help"}, {"tasks", "complete", "--help"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 0 {
 			t.Errorf("run(%v) = %d, want 0", args, code)
@@ -164,6 +164,186 @@ func TestTasksHelpWritesOnlyStdout(t *testing.T) {
 		if stdout.Len() == 0 || stderr.Len() != 0 {
 			t.Errorf("run(%v): stdout %q stderr %q", args, stdout.String(), stderr.String())
 		}
+	}
+}
+
+func TestTaskMutationsPreviewDoesNotWrite(t *testing.T) {
+	token := "test-secret-token"
+	var requests []struct{ method, path string }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, struct{ method, path string }{r.Method, r.URL.Path})
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/tasks/42" {
+			t.Errorf("preview request = %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"id":42,"title":"Current","done":false}`))
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", token)
+
+	cases := []struct {
+		args []string
+		want map[string]any
+	}{
+		{[]string{"tasks", "create", "7", "--title", "New", "--description", "details", "--priority", "2", "--due-date", "2026-08-06T10:00:00Z"}, map[string]any{"mode": "preview", "operation": "create", "project_id": float64(7), "changes": map[string]any{"title": "New", "description": "details", "priority": float64(2), "due_date": "2026-08-06T10:00:00Z"}}},
+		{[]string{"tasks", "update", "42", "--title", "Updated"}, map[string]any{"mode": "preview", "operation": "update", "task_id": float64(42), "current": map[string]any{"id": float64(42), "title": "Current", "done": false}, "changes": map[string]any{"title": "Updated"}}},
+		{[]string{"tasks", "complete", "42"}, map[string]any{"mode": "preview", "operation": "complete", "task_id": float64(42), "current": map[string]any{"id": float64(42), "title": "Current", "done": false}, "changes": map[string]any{"done": true}}},
+	}
+	for _, test := range cases {
+		var stdout, stderr bytes.Buffer
+		if code := run(test.args, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+			t.Fatalf("run(%v) = %d, stdout %q, stderr %q", test.args, code, stdout.String(), stderr.String())
+		}
+		var preview map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &preview); err != nil {
+			t.Fatalf("preview is not JSON: %v", err)
+		}
+		if !jsonEqual(preview, test.want) {
+			t.Errorf("preview for %v = %#v, want %#v", test.args, preview, test.want)
+		}
+	}
+	if len(requests) != 2 { // create needs no request; update and complete read current state.
+		t.Fatalf("requests = %#v, want exactly two GET requests", requests)
+	}
+}
+
+func TestTaskMutationsApplyWrites(t *testing.T) {
+	var requests []struct {
+		method, path, contentType, authorization string
+		body                                     map[string]any
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		requests = append(requests, struct {
+			method, path, contentType, authorization string
+			body                                     map[string]any
+		}{r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization"), body})
+		_, _ = w.Write([]byte(`{"id":42,"title":"Written"}`))
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	token := "test-secret-token"
+	t.Setenv("VIKUNJA_TOKEN", token)
+
+	for _, args := range [][]string{
+		{"tasks", "create", "7", "--title", "New", "--due-date", "2026-08-06T10:00:00Z", "--apply"},
+		{"tasks", "update", "42", "--description", "Changed", "--apply"},
+		{"tasks", "complete", "42", "--apply"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+			t.Fatalf("run(%v) = %d, stdout %q, stderr %q", args, code, stdout.String(), stderr.String())
+		}
+		var task map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &task); err != nil || task["id"] != float64(42) {
+			t.Fatalf("apply output = %q, error = %v", stdout.String(), err)
+		}
+	}
+	if len(requests) != 3 {
+		t.Fatalf("write requests = %d, want 3", len(requests))
+	}
+	for i, want := range []struct {
+		method, path, contentType string
+		body                      map[string]any
+	}{
+		{http.MethodPost, "/api/v2/projects/7/tasks", "application/json", map[string]any{"title": "New", "due_date": "2026-08-06T10:00:00Z"}},
+		{http.MethodPatch, "/api/v2/tasks/42", "application/merge-patch+json", map[string]any{"description": "Changed"}},
+		{http.MethodPatch, "/api/v2/tasks/42", "application/merge-patch+json", map[string]any{"done": true}},
+	} {
+		got := requests[i]
+		if got.method != want.method || got.path != want.path || got.contentType != want.contentType || got.authorization != "Bearer "+token || !jsonEqual(got.body, want.body) {
+			t.Errorf("request %d = %#v, want method=%s path=%s content-type=%s authorization=%q body=%#v", i, got, want.method, want.path, want.contentType, "Bearer "+token, want.body)
+		}
+	}
+}
+
+func TestTaskMutationApplyResourceErrorsAreSafe(t *testing.T) {
+	token := "test-secret-token"
+	baseSecret := "base-secret"
+	fragmentSecret := "fragment-secret"
+	for _, command := range [][]string{
+		{"tasks", "create", "7", "--title", "New", "--apply"},
+		{"tasks", "update", "42", "--title", "New", "--apply"},
+		{"tasks", "complete", "42", "--apply"},
+	} {
+		for _, test := range []struct {
+			name, message string
+			handler       http.HandlerFunc
+		}{
+			{"unauthorized", "认证失败：服务未接受 Token", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }},
+			{"forbidden", "权限不足：任务写入被拒绝", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }},
+			{"not-found", "任务或项目不存在", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) }},
+			{"redirect", "request to", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Location", "://invalid-redirect")
+				w.WriteHeader(http.StatusFound)
+			}},
+		} {
+			t.Run(strings.Join(command[1:3], "-")+"-"+test.name, func(t *testing.T) {
+				server := httptest.NewServer(test.handler)
+				defer server.Close()
+				t.Setenv("VIKUNJA_URL", server.URL+"?"+baseSecret+"#"+fragmentSecret)
+				t.Setenv("VIKUNJA_TOKEN", token)
+				var stdout, stderr bytes.Buffer
+				if code := run(command, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.message) {
+					t.Fatalf("run(%v) = %d, stdout %q, stderr %q", command, code, stdout.String(), stderr.String())
+				}
+				for _, secret := range []string{token, "Authorization", baseSecret, fragmentSecret} {
+					if strings.Contains(stderr.String(), secret) {
+						t.Errorf("stderr leaked %q: %q", secret, stderr.String())
+					}
+				}
+			})
+		}
+		t.Run(strings.Join(command[1:3], "-")+"-transport", func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			baseURL := server.URL
+			server.Close()
+			t.Setenv("VIKUNJA_URL", baseURL+"?"+baseSecret+"#"+fragmentSecret)
+			t.Setenv("VIKUNJA_TOKEN", token)
+			var stdout, stderr bytes.Buffer
+			if code := run(command, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "request to") {
+				t.Fatalf("run(%v) = %d, stdout %q, stderr %q", command, code, stdout.String(), stderr.String())
+			}
+			for _, secret := range []string{token, "Authorization", baseSecret, fragmentSecret} {
+				if strings.Contains(stderr.String(), secret) {
+					t.Errorf("stderr leaked %q: %q", secret, stderr.String())
+				}
+			}
+		})
+	}
+}
+
+func TestTaskMutationInvalidArgumentsDoNotRequest(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	for _, args := range [][]string{
+		{"tasks", "create", "0", "--title", "New"},
+		{"tasks", "create", "7"},
+		{"tasks", "create", "7", "--title", " "},
+		{"tasks", "create", "7", "--due-date", "invalid", "--title", "New"},
+		{"tasks", "update", "0", "--title", "New"},
+		{"tasks", "update", "42"},
+		{"tasks", "update", "42", "--priority", "-1"},
+		{"tasks", "update", "42", "--due-date", "invalid"},
+		{"tasks", "complete", "0"},
+		{"tasks", "complete", "42", "extra"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
+			t.Errorf("run(%v) = %d, stdout %q, stderr %q", args, code, stdout.String(), stderr.String())
+		}
+	}
+	if requests != 0 {
+		t.Errorf("invalid arguments made %d HTTP requests", requests)
 	}
 }
 

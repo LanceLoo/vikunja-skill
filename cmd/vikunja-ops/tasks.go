@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"vikunja-opencode-skill/internal/client"
 	"vikunja-opencode-skill/internal/config"
@@ -25,6 +27,12 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		return runTasksList(args[1:], stdout, stderr)
 	case "get":
 		return runTasksGet(args[1:], stdout, stderr)
+	case "create":
+		return runTasksCreate(args[1:], stdout, stderr)
+	case "update":
+		return runTasksUpdate(args[1:], stdout, stderr)
+	case "complete":
+		return runTasksComplete(args[1:], stdout, stderr)
 	case "labels":
 		return runTaskLabels(args[1:], stdout, stderr)
 	case "comments":
@@ -35,6 +43,202 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		printTasksUsage(stderr)
 		return 2
 	}
+}
+
+// taskChanges contains only fields explicitly selected at the command line.
+// It is used for preview output and is deliberately separate from the client
+// DTO so an omitted flag can never accidentally become a zero-value update.
+type taskChanges struct {
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Priority    *int    `json:"priority,omitempty"`
+	DueDate     *string `json:"due_date,omitempty"`
+}
+
+func bindTaskChangeFlags(flags *flag.FlagSet) (*string, *string, *int, *string) {
+	title := flags.String("title", "", "任务标题")
+	description := flags.String("description", "", "任务描述")
+	priority := flags.Int("priority", 0, "优先级")
+	dueDate := flags.String("due-date", "", "截止时间（RFC3339）")
+	return title, description, priority, dueDate
+}
+
+func taskChangeFlags(flags *flag.FlagSet, title, description *string, priority *int, dueDate *string) (taskChanges, bool) {
+	var changes taskChanges
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "title":
+			changes.Title = title
+		case "description":
+			changes.Description = description
+		case "priority":
+			changes.Priority = priority
+		case "due-date":
+			changes.DueDate = dueDate
+		}
+	})
+	return changes, changes.Title != nil || changes.Description != nil || changes.Priority != nil || changes.DueDate != nil
+}
+
+func validTaskChanges(changes taskChanges, requireTitle bool) bool {
+	if (requireTitle && changes.Title == nil) || (changes.Title != nil && strings.TrimSpace(*changes.Title) == "") {
+		return false
+	}
+	if changes.Priority != nil && *changes.Priority < 0 {
+		return false
+	}
+	if changes.DueDate != nil {
+		if _, err := time.Parse(time.RFC3339, *changes.DueDate); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func parseTaskID(command string, args []string, usage func(io.Writer), stderr io.Writer) (int64, bool) {
+	if len(args) == 0 {
+		usage(stderr)
+		return 0, false
+	}
+	id, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil || id < 1 {
+		fmt.Fprintf(stderr, "%s: id 必须是正整数\n", command)
+		usage(stderr)
+		return 0, false
+	}
+	return id, true
+}
+
+func runTasksCreate(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTasksCreateUsage(stdout)
+		return 0
+	}
+	projectID, ok := parseTaskID("tasks create", args, printTasksCreateUsage, stderr)
+	if !ok {
+		return 2
+	}
+	flags := flag.NewFlagSet("tasks create", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	title, description, priority, dueDate := bindTaskChangeFlags(flags)
+	apply := flags.Bool("apply", false, "执行写入；默认仅预览")
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			printTasksCreateUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printTasksCreateUsage(stderr)
+		return 2
+	}
+	changes, _ := taskChangeFlags(flags, title, description, priority, dueDate)
+	if flags.NArg() != 0 || !validTaskChanges(changes, true) {
+		printTasksCreateUsage(stderr)
+		return 2
+	}
+	if !*apply {
+		return writeJSON("tasks create", map[string]any{"mode": "preview", "operation": "create", "project_id": projectID, "changes": changes}, stdout, stderr)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks create: %v\n", err)
+		return 1
+	}
+	task, err := client.New(nil).CreateTask(context.Background(), cfg.BaseURL, cfg.Token, projectID, client.CreateTaskInput{Title: *changes.Title, Description: changes.Description, Priority: changes.Priority, DueDate: changes.DueDate})
+	if err != nil {
+		return printTaskWriteError("tasks create", err, stderr)
+	}
+	return writeJSON("tasks create", task, stdout, stderr)
+}
+
+func runTasksUpdate(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTasksUpdateUsage(stdout)
+		return 0
+	}
+	id, ok := parseTaskID("tasks update", args, printTasksUpdateUsage, stderr)
+	if !ok {
+		return 2
+	}
+	flags := flag.NewFlagSet("tasks update", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	title, description, priority, dueDate := bindTaskChangeFlags(flags)
+	apply := flags.Bool("apply", false, "执行写入；默认仅预览")
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			printTasksUpdateUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printTasksUpdateUsage(stderr)
+		return 2
+	}
+	changes, specified := taskChangeFlags(flags, title, description, priority, dueDate)
+	if flags.NArg() != 0 || !specified || !validTaskChanges(changes, false) {
+		printTasksUpdateUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks update: %v\n", err)
+		return 1
+	}
+	if !*apply {
+		current, err := client.New(nil).GetTask(cfg.BaseURL, cfg.Token, id)
+		if err != nil {
+			return printTasksError("tasks update", err, stderr)
+		}
+		return writeJSON("tasks update", map[string]any{"mode": "preview", "operation": "update", "task_id": id, "current": current, "changes": changes}, stdout, stderr)
+	}
+	task, err := client.New(nil).UpdateTask(context.Background(), cfg.BaseURL, cfg.Token, id, client.UpdateTaskInput{Title: changes.Title, Description: changes.Description, Priority: changes.Priority, DueDate: changes.DueDate})
+	if err != nil {
+		return printTaskWriteError("tasks update", err, stderr)
+	}
+	return writeJSON("tasks update", task, stdout, stderr)
+}
+
+func runTasksComplete(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTasksCompleteUsage(stdout)
+		return 0
+	}
+	id, ok := parseTaskID("tasks complete", args, printTasksCompleteUsage, stderr)
+	if !ok {
+		return 2
+	}
+	flags := flag.NewFlagSet("tasks complete", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	apply := flags.Bool("apply", false, "执行写入；默认仅预览")
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			printTasksCompleteUsage(stdout)
+			return 0
+		}
+		fmt.Fprintln(stderr, err)
+		printTasksCompleteUsage(stderr)
+		return 2
+	}
+	if flags.NArg() != 0 {
+		printTasksCompleteUsage(stderr)
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks complete: %v\n", err)
+		return 1
+	}
+	if !*apply {
+		current, err := client.New(nil).GetTask(cfg.BaseURL, cfg.Token, id)
+		if err != nil {
+			return printTasksError("tasks complete", err, stderr)
+		}
+		return writeJSON("tasks complete", map[string]any{"mode": "preview", "operation": "complete", "task_id": id, "current": current, "changes": map[string]bool{"done": true}}, stdout, stderr)
+	}
+	task, err := client.New(nil).CompleteTask(context.Background(), cfg.BaseURL, cfg.Token, id)
+	if err != nil {
+		return printTaskWriteError("tasks complete", err, stderr)
+	}
+	return writeJSON("tasks complete", task, stdout, stderr)
 }
 
 func runTasksList(args []string, stdout, stderr io.Writer) int {
@@ -117,6 +321,10 @@ func runTasksGet(args []string, stdout, stderr io.Writer) int {
 }
 func printTasksError(command string, err error, stderr io.Writer) int {
 	return printResourceError(command, err, "任务读取被拒绝", "任务或项目不存在", stderr)
+}
+
+func printTaskWriteError(command string, err error, stderr io.Writer) int {
+	return printResourceError(command, err, "任务写入被拒绝", "任务或项目不存在", stderr)
 }
 
 func runTaskLabels(args []string, stdout, stderr io.Writer) int {
