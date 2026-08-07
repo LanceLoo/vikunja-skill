@@ -147,6 +147,39 @@ func (c *Client) BulkUpdateTasks(ctx context.Context, baseURL, token string, inp
 	return result, nil
 }
 
+// DeleteTask deletes taskID with a single bodyless DELETE request. Success is
+// HTTP 204 only; any other 2xx status is reported as a StatusError so callers
+// never assume deletion from an ambiguous response. Response bodies are never
+// read or included in errors.
+func (c *Client) DeleteTask(ctx context.Context, baseURL, token string, taskID int64) error {
+	if ctx == nil {
+		return errors.New("context must not be nil")
+	}
+	if taskID < 1 {
+		return errors.New("task id must be positive")
+	}
+	target := taskEndpoint(baseURL, taskID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, target, nil)
+	if err != nil {
+		return errors.New("cannot create request")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request to %s failed", safeURL(target))
+	}
+	defer response.Body.Close()
+	if err := responseError(response, "task delete request"); err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusNoContent {
+		return &StatusError{Operation: "task delete request", StatusCode: response.StatusCode}
+	}
+	return nil
+}
+
 func (c *Client) writeTask(ctx context.Context, method, target, token string, body any, contentType, operation string) (Task, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {

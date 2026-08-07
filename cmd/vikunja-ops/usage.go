@@ -55,10 +55,11 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks update <id> [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks complete <id> [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks bulk-update --ids 12,34,56 [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply --confirm TOKEN]")
+	fmt.Fprintln(out, "  vikunja-ops tasks delete --id N --project-id N [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "list、get、labels、comments 和 attachments 为只读命令，仅发送 GET 请求。")
 	fmt.Fprintln(out, "create、update 和 complete 默认输出 JSON 预览且不写入；仅 --apply 会执行写入。")
-	fmt.Fprintln(out, "bulk-update 默认输出预览；--apply 与 --confirm 必须同时提供才执行写入。不支持 DELETE。")
+	fmt.Fprintln(out, "bulk-update 与 delete 默认输出预览；--apply 与 --confirm 必须同时提供才执行写入。bulk-update 不支持 DELETE。")
 }
 func printTasksCreateUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
@@ -88,6 +89,18 @@ func printTasksBulkUpdateUsage(out io.Writer) {
 	fmt.Fprintln(out, "写入为单一服务端批量请求（PUT /tasks/bulk）：服务端权限或校验失败时整批不执行，客户端无逐项部分成功或回滚，不重试。")
 	fmt.Fprintln(out, "confirmation token 仅绑定已批准的规范化操作意图（目标 ID + 变更字段），不是服务端状态快照。")
 	fmt.Fprintln(out, "更新端点不支持条件写，预览与 apply 不是原子操作；apply 前的重新读取仅验证目标当前可读且返回 ID 与请求一致，不防止并发修改。本命令不支持 DELETE。")
+}
+func printTasksDeleteUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks delete --id N --project-id N [--apply --confirm TOKEN]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "--id 与 --project-id 均为必填的正整数；仅支持单个显式 ID，不支持位置参数、批量 ID、filter、--all、stdin 或文件输入。")
+	fmt.Fprintln(out, "默认读取目标任务并输出 JSON 预览（含 confirmation_token 与 maximum_affected: 1），仅发送 GET，不发送 DELETE。")
+	fmt.Fprintln(out, "--apply 与 --confirm TOKEN 必须同时提供，且 TOKEN 必须为 sha256:<64 位小写十六进制> 并与本次预览 token 完全一致，才会执行删除。")
+	fmt.Fprintln(out, "删除为单个 bodyless DELETE /api/v2/tasks/{id}，仅接受 HTTP 204；最多影响 1 个任务，无自动重试、无并发、无回滚。")
+	fmt.Fprintln(out, "confirmation token 仅绑定已批准的规范化操作意图（operation + 任务 ID + 项目 ID），不是服务端状态快照。")
+	fmt.Fprintln(out, "删除端点不支持条件写，预览与 apply 不是原子操作；apply 前的预检仅验证目标当前可读且返回的任务 ID 与项目 ID 与请求一致。")
+	fmt.Fprintln(out, "204 后执行一次 GET 回读：404 仅表示当前任务不可读（不据此推断由本命令删除），200 报告删除结果与预期不符，其他回读失败报告删除已获服务端确认但回读未验证。")
 }
 func printLabelsUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")

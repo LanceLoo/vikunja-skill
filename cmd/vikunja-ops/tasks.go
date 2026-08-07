@@ -41,6 +41,8 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		return runTaskAttachments(args[1:], stdout, stderr)
 	case "bulk-update":
 		return runTasksBulkUpdate(args[1:], stdout, stderr)
+	case "delete":
+		return runTasksDelete(args[1:], stdout, stderr)
 	default:
 		printTasksUsage(stderr)
 		return 2
