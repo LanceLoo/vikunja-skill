@@ -39,6 +39,8 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		return runTaskComments(args[1:], stdout, stderr)
 	case "attachments":
 		return runTaskAttachments(args[1:], stdout, stderr)
+	case "bulk-update":
+		return runTasksBulkUpdate(args[1:], stdout, stderr)
 	default:
 		printTasksUsage(stderr)
 		return 2

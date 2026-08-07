@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// MaxBulkUpdateTaskIDs is the client-side upper bound of task IDs accepted
+// in a single bulk update, matching the CLI limit.
+const MaxBulkUpdateTaskIDs = 100
+
 // CreateTaskInput contains the writable fields accepted when creating a task.
 // It is deliberately separate from Task so API response and read-only fields
 // cannot be sent back to the service.
@@ -30,6 +34,24 @@ type UpdateTaskInput struct {
 	Description *string
 	Priority    *int
 	DueDate     *string
+}
+
+// BulkUpdateTasksInput contains the task IDs, the explicit field names to
+// write, and the matching writable values for a bulk task update.
+type BulkUpdateTasksInput struct {
+	TaskIDs []int64
+	Fields  []string
+	Values  UpdateTaskInput
+}
+
+// BulkUpdateTasksResult is the structured BulkTask response of a bulk update.
+// Values reuses the existing Task model; read-only fields are only populated
+// when the service returns them.
+type BulkUpdateTasksResult struct {
+	TaskIDs []int64  `json:"task_ids"`
+	Fields  []string `json:"fields"`
+	Values  Task     `json:"values"`
+	Tasks   []Task   `json:"tasks"`
 }
 
 type createTaskRequest struct {
@@ -77,6 +99,52 @@ func (c *Client) CompleteTask(ctx context.Context, baseURL, token string, taskID
 	return c.writeTask(ctx, http.MethodPatch, taskEndpoint(baseURL, taskID), token, struct {
 		Done bool `json:"done"`
 	}{Done: true}, "application/merge-patch+json", "task complete request")
+}
+
+// BulkUpdateTasks applies the supplied writable fields to every task ID in a
+// single request. The service rejects the whole batch if any involved project
+// is not writable; there are no partial updates.
+func (c *Client) BulkUpdateTasks(ctx context.Context, baseURL, token string, input BulkUpdateTasksInput) (BulkUpdateTasksResult, error) {
+	if err := validateBulkUpdateTasks(input); err != nil {
+		return BulkUpdateTasksResult{}, err
+	}
+	payload, err := json.Marshal(struct {
+		TaskIDs []int64           `json:"task_ids"`
+		Fields  []string          `json:"fields"`
+		Values  updateTaskRequest `json:"values"`
+	}{
+		TaskIDs: input.TaskIDs,
+		Fields:  input.Fields,
+		Values: updateTaskRequest{
+			Title: input.Values.Title, Description: input.Values.Description,
+			Priority: input.Values.Priority, DueDate: input.Values.DueDate,
+		},
+	})
+	if err != nil {
+		return BulkUpdateTasksResult{}, errors.New("cannot encode task request")
+	}
+	target := endpoint(baseURL, "tasks/bulk")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, bytes.NewReader(payload))
+	if err != nil {
+		return BulkUpdateTasksResult{}, errors.New("cannot create request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return BulkUpdateTasksResult{}, fmt.Errorf("request to %s failed", safeURL(target))
+	}
+	defer response.Body.Close()
+	if err := responseError(response, "task bulk update request"); err != nil {
+		return BulkUpdateTasksResult{}, err
+	}
+	var result BulkUpdateTasksResult
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return BulkUpdateTasksResult{}, errors.New("cannot decode task bulk update response")
+	}
+	return result, nil
 }
 
 func (c *Client) writeTask(ctx context.Context, method, target, token string, body any, contentType, operation string) (Task, error) {
@@ -134,6 +202,65 @@ func validateUpdateTask(taskID int64, input UpdateTaskInput) error {
 		return err
 	}
 	return validateTaskDueDate(input.DueDate)
+}
+
+func validateBulkUpdateTasks(input BulkUpdateTasksInput) error {
+	if len(input.TaskIDs) == 0 {
+		return errors.New("bulk update must include at least one task id")
+	}
+	if len(input.TaskIDs) > MaxBulkUpdateTaskIDs {
+		return fmt.Errorf("bulk update must include at most %d task ids", MaxBulkUpdateTaskIDs)
+	}
+	seenIDs := make(map[int64]struct{}, len(input.TaskIDs))
+	for _, id := range input.TaskIDs {
+		if id < 1 {
+			return errors.New("task id must be positive")
+		}
+		if _, duplicate := seenIDs[id]; duplicate {
+			return errors.New("bulk update task ids must not contain duplicates")
+		}
+		seenIDs[id] = struct{}{}
+	}
+	if len(input.Fields) == 0 {
+		return errors.New("bulk update must include at least one field")
+	}
+	valueByField := map[string]bool{
+		"title":       input.Values.Title != nil,
+		"description": input.Values.Description != nil,
+		"priority":    input.Values.Priority != nil,
+		"due_date":    input.Values.DueDate != nil,
+	}
+	seenFields := make(map[string]struct{}, len(input.Fields))
+	for _, field := range input.Fields {
+		if strings.TrimSpace(field) == "" {
+			return errors.New("bulk update fields must not be empty")
+		}
+		if _, duplicate := seenFields[field]; duplicate {
+			return errors.New("bulk update fields must not contain duplicates")
+		}
+		seenFields[field] = struct{}{}
+		hasValue, supported := valueByField[field]
+		if !supported {
+			return fmt.Errorf("bulk update field %q is not writable", field)
+		}
+		if !hasValue {
+			return fmt.Errorf("bulk update field %q has no matching value", field)
+		}
+	}
+	for field, hasValue := range valueByField {
+		if hasValue {
+			if _, listed := seenFields[field]; !listed {
+				return fmt.Errorf("bulk update value for %q is not listed in fields", field)
+			}
+		}
+	}
+	if input.Values.Title != nil && strings.TrimSpace(*input.Values.Title) == "" {
+		return errors.New("task title must not be empty")
+	}
+	if err := validateTaskPriority(input.Values.Priority); err != nil {
+		return err
+	}
+	return validateTaskDueDate(input.Values.DueDate)
 }
 
 func validateTaskPriority(priority *int) error {

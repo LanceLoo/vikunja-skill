@@ -54,9 +54,11 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks create <project-id> --title TEXT [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks update <id> [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks complete <id> [--apply]")
+	fmt.Fprintln(out, "  vikunja-ops tasks bulk-update --ids 12,34,56 [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "list、get、labels、comments 和 attachments 为只读命令，仅发送 GET 请求。")
 	fmt.Fprintln(out, "create、update 和 complete 默认输出 JSON 预览且不写入；仅 --apply 会执行写入。")
+	fmt.Fprintln(out, "bulk-update 默认输出预览；--apply 与 --confirm 必须同时提供才执行写入。不支持 DELETE。")
 }
 func printTasksCreateUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
@@ -75,6 +77,17 @@ func printTasksCompleteUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks complete <id> [--apply]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "默认读取当前任务并输出 JSON 预览；--apply 才将任务标为完成。")
+}
+func printTasksBulkUpdateUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks bulk-update --ids 12,34,56 [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply --confirm TOKEN]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "--ids 必填：逗号分隔的正整数 ID（最多 100 个），仅支持显式 ID，不支持位置参数、filter、all、ids-file 或 stdin。")
+	fmt.Fprintln(out, "至少指定一个变更字段。默认读取所有目标任务并输出 JSON 预览（含 confirmation_token），不发送写请求。")
+	fmt.Fprintln(out, "--apply 与 --confirm TOKEN 必须同时提供，且 TOKEN 必须与本次规范化计划算出的预览 token 完全一致，才会执行写入。")
+	fmt.Fprintln(out, "写入为单一服务端批量请求（PUT /tasks/bulk）：服务端权限或校验失败时整批不执行，客户端无逐项部分成功或回滚，不重试。")
+	fmt.Fprintln(out, "confirmation token 仅绑定已批准的规范化操作意图（目标 ID + 变更字段），不是服务端状态快照。")
+	fmt.Fprintln(out, "更新端点不支持条件写，预览与 apply 不是原子操作；apply 前的重新读取仅验证目标当前可读且返回 ID 与请求一致，不防止并发修改。本命令不支持 DELETE。")
 }
 func printLabelsUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")

@@ -18,6 +18,18 @@ var (
 	ErrNotFound = errors.New("resource not found")
 )
 
+// StatusError is a minimal, inspectable HTTP status error. It carries only
+// the operation label and the status code — never the URL, query, fragment,
+// token, or response body — so callers may classify and print it safely.
+type StatusError struct {
+	Operation  string
+	StatusCode int
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("%s failed with HTTP status %d", e.Operation, e.StatusCode)
+}
+
 func responseError(response *http.Response, operation string) error {
 	switch response.StatusCode {
 	case http.StatusUnauthorized:
@@ -28,7 +40,7 @@ func responseError(response *http.Response, operation string) error {
 		return ErrNotFound
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= 300 {
-		return fmt.Errorf("%s failed with HTTP status %d", operation, response.StatusCode)
+		return &StatusError{Operation: operation, StatusCode: response.StatusCode}
 	}
 	return nil
 }
