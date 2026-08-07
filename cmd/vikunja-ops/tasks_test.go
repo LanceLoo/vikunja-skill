@@ -215,6 +215,15 @@ func TestTaskMutationsPreviewDoesNotWrite(t *testing.T) {
 	t.Setenv("VIKUNJA_URL", server.URL)
 	t.Setenv("VIKUNJA_TOKEN", token)
 
+	var stdout, stderr bytes.Buffer
+	compactCreate := []string{"tasks", "create", "7", "--title", "New", "--description", "details", "--priority", "2", "--due-date", "2026-08-06T10:00:00Z"}
+	if code := run(compactCreate, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(%v) = %d, stdout %q, stderr %q", compactCreate, code, stdout.String(), stderr.String())
+	}
+	if got, want := stdout.String(), "{\"changes\":{\"title\":\"New\",\"description\":\"details\",\"priority\":2,\"due_date\":\"2026-08-06T10:00:00Z\"},\"mode\":\"preview\",\"operation\":\"create\",\"project_id\":7}\n"; got != want {
+		t.Errorf("compact create preview = %q, want %q", got, want)
+	}
+
 	cases := []struct {
 		args []string
 		want map[string]any
@@ -256,7 +265,7 @@ func TestTaskMutationsApplyWrites(t *testing.T) {
 			method, path, contentType, authorization string
 			body                                     map[string]any
 		}{r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization"), body})
-		_, _ = w.Write([]byte(`{"id":42,"title":"Written"}`))
+		_, _ = w.Write([]byte(`{"id":42,"title":"Written","metadata":{"source":"test"}}`))
 	}))
 	defer server.Close()
 	t.Setenv("VIKUNJA_URL", server.URL)

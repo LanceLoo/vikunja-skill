@@ -72,4 +72,34 @@ func assertPrettyJSON(t *testing.T, output []byte) {
 	if !strings.Contains(text, "\n  \"") {
 		t.Errorf("pretty JSON does not use a two-space top-level indent: %q", text)
 	}
+	if !hasNestedJSONField(value) {
+		t.Errorf("pretty JSON has no nested field to verify: %q", text)
+	}
+	var expected bytes.Buffer
+	if err := json.Indent(&expected, output, "", "  "); err != nil {
+		t.Fatalf("indent JSON: %v", err)
+	}
+	if !bytes.Equal(output, expected.Bytes()) {
+		t.Errorf("pretty JSON is not canonically indented by two spaces (including four-space nested fields): %q", text)
+	}
+}
+
+func hasNestedJSONField(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, child := range object {
+		switch nested := child.(type) {
+		case map[string]any:
+			if len(nested) > 0 {
+				return true
+			}
+		case []any:
+			if len(nested) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
