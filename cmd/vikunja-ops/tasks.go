@@ -419,6 +419,9 @@ func runTaskComments(args []string, stdout, stderr io.Writer) int {
 	return writeJSON("tasks comments", v, stdout, stderr)
 }
 func runTaskAttachments(args []string, stdout, stderr io.Writer) int {
+	if len(args) >= 1 && args[0] == "download" {
+		return runTaskAttachmentDownload(args[1:], stdout, stderr)
+	}
 	if len(args) == 1 && args[0] == "--help" {
 		printTaskAttachmentsUsage(stdout)
 		return 0

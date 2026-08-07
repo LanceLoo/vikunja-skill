@@ -51,6 +51,7 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks labels <task-id> [--page N] [--per-page N] [--q TEXT]")
 	fmt.Fprintln(out, "  vikunja-ops tasks comments <task-id> [--page N] [--per-page N] [--q TEXT] [--order-by asc|desc]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments download --task-id N --attachment-id N --output PATH [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks create <project-id> --title TEXT [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks update <id> [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks complete <id> [--apply]")
@@ -132,6 +133,15 @@ func printTaskAttachmentsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "task-id 必须是正整数；page 必须大于等于 1；per-page 必须在 1 到 1000 之间。")
+}
+func printTaskAttachmentDownloadUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments download --task-id N --attachment-id N --output PATH [--apply]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "--task-id、--attachment-id 为必填正整数；--output 必填；不支持位置参数、--confirm、批量 ID、--all、文件或 stdin 输入。")
+	fmt.Fprintln(out, "默认仅预览：恰好一次附件元数据 GET，不下载字节、不创建本地文件。")
+	fmt.Fprintln(out, "--apply 恰好执行一次元数据 GET 和一次字节 GET（仅接受 HTTP 200）；单文件硬上限 100 MiB，传输超时 10 分钟，拒绝重定向，不重试。")
+	fmt.Fprintln(out, "输出目标必须不存在，父目录必须已存在且不是符号链接；不自动创建目录；服务端文件名与 Content-Disposition 不影响目标路径。")
 }
 func printTasksListUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
