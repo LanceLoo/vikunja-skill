@@ -366,6 +366,42 @@ func TestTaskAttachmentDownloadApplySuccess(t *testing.T) {
 	}
 }
 
+func TestTaskAttachmentDownloadApplyRejectsSameLengthPostInstallTampering(t *testing.T) {
+	server, requests := newAttachmentDownloadServer(t, attachmentDownloadServerOptions{})
+	defer server.Close()
+	originalHook := attachmentDownloadPostInstallHook
+	attachmentDownloadPostInstallHook = func(destination string) {
+		if err := os.WriteFile(destination, []byte("evil"), 0); err != nil {
+			t.Fatalf("tamper installed destination: %v", err)
+		}
+	}
+	defer func() { attachmentDownloadPostInstallHook = originalHook }()
+
+	destination := tempOutputPath(t, "out.bin")
+	code, stdout, stderr := runAttachmentDownload(t, server, "--task-id", "12", "--attachment-id", "5", "--output", destination, "--apply")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "本地回读校验失败") {
+		t.Fatalf("run = %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, `"local_readback":"verified"`) || strings.Contains(stdout, `"sha256":`) {
+		t.Errorf("verified result emitted after tampering: %q", stdout)
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil || string(content) != "evil" {
+		t.Errorf("installed destination = %q, err = %v", content, err)
+	}
+	if countLeftoverTemps(t, destination) != 0 {
+		t.Error("installed destination failure left temporary files")
+	}
+	if len(*requests) != 2 {
+		t.Errorf("requests = %#v, want metadata GET + byte GET", *requests)
+	}
+	for _, secret := range []string{attachmentDownloadToken, server.URL, "evil"} {
+		if strings.Contains(stderr, secret) {
+			t.Errorf("stderr leaked %q: %q", secret, stderr)
+		}
+	}
+}
+
 func TestTaskAttachmentDownloadApplyContentLengthOverLimit(t *testing.T) {
 	over := int64(100<<20) + 1
 	server, requests := newAttachmentDownloadServer(t, attachmentDownloadServerOptions{dataContentLength: &over})

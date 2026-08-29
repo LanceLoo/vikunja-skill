@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -52,6 +53,9 @@ var (
 	linkFile                     = os.Link
 	removeFile                   = os.Remove
 	checkDownloadDestinationSafe = checkDestinationAbsentAndParentSafe
+	// attachmentDownloadPostInstallHook is a narrow test seam for the interval
+	// after installation and before final local readback.
+	attachmentDownloadPostInstallHook = func(string) {}
 )
 
 func runTaskAttachmentDownload(args []string, stdout, stderr io.Writer) int {
@@ -198,6 +202,7 @@ func applyAttachmentDownload(api *client.Client, cfg config.Config, taskID int64
 	if err != nil && !installed {
 		return fail("无法在不覆盖的情况下完成写入：%v%s", err, cleanupTemp())
 	}
+	attachmentDownloadPostInstallHook(destination)
 	result, readbackErr := attachmentDownloadReadback(destination, written, hash, stream, taskID, meta)
 	if err != nil {
 		// The destination was linked but temporary removal failed: a file WAS
@@ -215,11 +220,28 @@ func applyAttachmentDownload(api *client.Client, cfg config.Config, taskID int64
 	return writeJSON("tasks attachments download", result, stdout, stderr)
 }
 
-// attachmentDownloadReadback verifies the installed destination is a regular
-// file of the expected size and builds the typed success output.
+// attachmentDownloadReadback reopens and hashes the installed destination.
+// Lstat plus SameFile checks make a replacement between observation and open
+// detectable where the platform exposes stable file identity; this does not
+// claim to eliminate all filesystem TOCTOU races.
 func attachmentDownloadReadback(destination string, written int64, hash interface{ Sum([]byte) []byte }, stream *client.AttachmentByteStream, taskID int64, meta client.AttachmentMeta) (attachmentDownloadResult, error) {
 	info, err := os.Lstat(destination)
 	if err != nil || !info.Mode().IsRegular() || info.Size() != written {
+		return attachmentDownloadResult{}, errors.New("readback failed")
+	}
+	file, err := os.Open(destination)
+	if err != nil {
+		return attachmentDownloadResult{}, errors.New("readback failed")
+	}
+	openedInfo, statErr := file.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() || openedInfo.Size() != written || !os.SameFile(info, openedInfo) {
+		_ = file.Close()
+		return attachmentDownloadResult{}, errors.New("readback failed")
+	}
+	readbackHash := sha256.New()
+	read, readErr := io.Copy(readbackHash, io.LimitReader(file, client.MaxAttachmentDownloadBytes+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil || read > client.MaxAttachmentDownloadBytes || read != written || !bytes.Equal(readbackHash.Sum(nil), hash.Sum(nil)) {
 		return attachmentDownloadResult{}, errors.New("readback failed")
 	}
 	return attachmentDownloadResult{
