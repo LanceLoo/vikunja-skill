@@ -327,6 +327,14 @@ func runTasksGet(args []string, stdout, stderr io.Writer) int {
 }
 
 func runTaskRelations(args []string, stdout, stderr io.Writer) int {
+	if len(args) >= 1 {
+		switch args[0] {
+		case "create":
+			return runTaskRelationWrite("relation_create", args[1:], stdout, stderr)
+		case "delete":
+			return runTaskRelationWrite("relation_delete", args[1:], stdout, stderr)
+		}
+	}
 	if len(args) == 1 && args[0] == "--help" {
 		printTaskRelationsUsage(stdout)
 		return 0
