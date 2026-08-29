@@ -41,6 +41,15 @@ type PaginatedProjects struct {
 	raw        json.RawMessage
 }
 
+// ProjectTitleUpdateSnapshot is the strictly validated project state used to
+// evaluate root-project title updates.
+type ProjectTitleUpdateSnapshot struct {
+	Project Project
+	ID      int64
+	Title   string
+	IsRoot  bool
+}
+
 func (p *Project) UnmarshalJSON(data []byte) error {
 	type project Project
 	var decoded project
@@ -181,6 +190,141 @@ func (c *Client) CreateProject(ctx context.Context, baseURL, token, title string
 		return Project{}, errors.New("cannot decode project create response")
 	}
 	return project, nil
+}
+
+// GetProjectTitleUpdateSnapshot retrieves a project with the fields required
+// to safely evaluate its root-project scope.
+func (c *Client) GetProjectTitleUpdateSnapshot(baseURL, token string, id int64) (ProjectTitleUpdateSnapshot, error) {
+	if id < 1 {
+		return ProjectTitleUpdateSnapshot{}, errors.New("project id must be positive")
+	}
+	target := projectEndpoint(baseURL, id)
+	response, err := c.get(target, token)
+	if err != nil {
+		return ProjectTitleUpdateSnapshot{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		if err := responseError(response, "project title update snapshot request"); err != nil {
+			return ProjectTitleUpdateSnapshot{}, err
+		}
+		return ProjectTitleUpdateSnapshot{}, &StatusError{Operation: "project title update snapshot request", StatusCode: response.StatusCode}
+	}
+	return decodeProjectTitleUpdateSnapshot(response.Body, id, "")
+}
+
+// UpdateProjectTitle updates exactly one project's title and strictly validates
+// the direct response. IsRoot describes the returned state and does not by
+// itself certify that the project was root before this request.
+func (c *Client) UpdateProjectTitle(ctx context.Context, baseURL, token string, id int64, title string) (ProjectTitleUpdateSnapshot, error) {
+	if ctx == nil {
+		return ProjectTitleUpdateSnapshot{}, errors.New("context must not be nil")
+	}
+	if id < 1 {
+		return ProjectTitleUpdateSnapshot{}, errors.New("project id must be positive")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return ProjectTitleUpdateSnapshot{}, errors.New("project title must not be empty")
+	}
+	if utf8.RuneCountInString(title) > 250 {
+		return ProjectTitleUpdateSnapshot{}, errors.New("project title must be at most 250 runes")
+	}
+	payload, err := json.Marshal(struct {
+		Title string `json:"title"`
+	}{Title: title})
+	if err != nil {
+		return ProjectTitleUpdateSnapshot{}, errors.New("cannot encode project title update request")
+	}
+	target := projectEndpoint(baseURL, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, target, bytes.NewReader(payload))
+	if err != nil {
+		return ProjectTitleUpdateSnapshot{}, errors.New("cannot create request")
+	}
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return ProjectTitleUpdateSnapshot{}, fmt.Errorf("request to %s failed", safeURL(target))
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		if err := responseError(response, "project title update request"); err != nil {
+			return ProjectTitleUpdateSnapshot{}, err
+		}
+		return ProjectTitleUpdateSnapshot{}, &StatusError{Operation: "project title update request", StatusCode: response.StatusCode}
+	}
+	return decodeProjectTitleUpdateSnapshot(response.Body, id, title)
+}
+
+func decodeProjectTitleUpdateSnapshot(body io.Reader, expectedID int64, expectedTitle string) (ProjectTitleUpdateSnapshot, error) {
+	const decodeError = "cannot decode project title update snapshot response"
+	decoder := json.NewDecoder(body)
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
+		return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+	}
+	objectDecoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := objectDecoder.Token()
+	if err != nil {
+		return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+	}
+	var id int64
+	var title string
+	var parentID int64
+	var parentNull, haveID, haveTitle, haveParent bool
+	for objectDecoder.More() {
+		keyToken, err := objectDecoder.Token()
+		if err != nil {
+			return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+		}
+		var value json.RawMessage
+		if err := objectDecoder.Decode(&value); err != nil {
+			return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+		}
+		switch key {
+		case "id":
+			if haveID || json.Unmarshal(value, &id) != nil || id < 1 {
+				return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+			}
+			haveID = true
+		case "title":
+			if haveTitle || bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &title) != nil {
+				return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+			}
+			haveTitle = true
+		case "parent_project_id":
+			if haveParent {
+				return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+			}
+			parentNull = bytes.Equal(bytes.TrimSpace(value), []byte("null"))
+			if !parentNull && (json.Unmarshal(value, &parentID) != nil || parentID < 0) {
+				return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+			}
+			haveParent = true
+		}
+	}
+	if _, err := objectDecoder.Token(); err != nil || !haveID || !haveTitle || !haveParent || id != expectedID || (expectedTitle != "" && title != expectedTitle) {
+		return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+	}
+	var project Project
+	if err := json.Unmarshal(raw, &project); err != nil {
+		return ProjectTitleUpdateSnapshot{}, errors.New(decodeError)
+	}
+	return ProjectTitleUpdateSnapshot{Project: project, ID: id, Title: title, IsRoot: parentNull || parentID == 0}, nil
 }
 
 func projectsListEndpoint(baseURL string, page, perPage int) (string, error) {

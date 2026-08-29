@@ -32,8 +32,9 @@ func printProjectsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops projects list [--page N] [--per-page N]")
 	fmt.Fprintln(out, "  vikunja-ops projects get <id>  (id 为非负整数)")
 	fmt.Fprintln(out, "  vikunja-ops projects create --title TEXT [--apply]")
+	fmt.Fprintln(out, "  vikunja-ops projects update <positive-id> --title TEXT [--apply]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "读取 Vikunja 项目；仅发送 GET 请求。projects create 默认仅预览；--apply 创建后执行一次 GET 回读，不重试。")
+	fmt.Fprintln(out, "读取 Vikunja 项目；仅发送 GET 请求。projects create 默认仅预览；--apply 创建后执行一次 GET 回读，不重试。projects update 仅更新根项目标题；预览一次预检 GET，写入时为预检 GET、一次 PATCH 与一次回读，无重试且无并发前置条件。默认项目身份未由 API 暴露。")
 }
 func printProjectsListUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
@@ -50,6 +51,12 @@ func printProjectsCreateUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops projects create --title TEXT [--apply]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "仅创建根项目。title 必填，不能全为空白，最多 250 个 Unicode 字符。默认输出预览且不发送请求；--apply 只发送一次创建请求和一次 GET 回读，不重试。")
+}
+func printProjectsUpdateUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops projects update <positive-id> --title TEXT [--apply]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "仅更新根项目标题。title 必填，去除首尾空白后为 1 至 250 个 Unicode 字符。默认执行一次严格预检 GET；--apply 在标题不同才执行一次 PATCH 和一次回读。不重试；最后写入生效且没有并发前置条件。API 未暴露默认项目身份。")
 }
 func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
