@@ -31,8 +31,9 @@ func printProjectsUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
 	fmt.Fprintln(out, "  vikunja-ops projects list [--page N] [--per-page N]")
 	fmt.Fprintln(out, "  vikunja-ops projects get <id>  (id 为非负整数)")
+	fmt.Fprintln(out, "  vikunja-ops projects create --title TEXT [--apply]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "读取 Vikunja 项目；仅发送 GET 请求。")
+	fmt.Fprintln(out, "读取 Vikunja 项目；仅发送 GET 请求。projects create 默认仅预览；--apply 创建后执行一次 GET 回读，不重试。")
 }
 func printProjectsListUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
@@ -43,6 +44,12 @@ func printProjectsListUsage(out io.Writer) {
 func printProjectsGetUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
 	fmt.Fprintln(out, "  vikunja-ops projects get <id>  (id 为非负整数)")
+}
+func printProjectsCreateUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops projects create --title TEXT [--apply]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "仅创建根项目。title 必填，不能全为空白，最多 250 个 Unicode 字符。默认输出预览且不发送请求；--apply 只发送一次创建请求和一次 GET 回读，不重试。")
 }
 func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")

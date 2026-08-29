@@ -1,12 +1,146 @@
 package client
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestCreateProjectValidation(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+	c := New(server.Client())
+	for _, call := range []func() error{
+		func() error { _, err := c.CreateProject(nil, server.URL, "fake-token", "Project"); return err },
+		func() error {
+			_, err := c.CreateProject(context.Background(), server.URL, "fake-token", " \t ")
+			return err
+		},
+		func() error {
+			_, err := c.CreateProject(context.Background(), server.URL, "fake-token", strings.Repeat("界", 251))
+			return err
+		},
+	} {
+		if call() == nil {
+			t.Error("invalid project create succeeded")
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("invalid creates made %d requests", requests)
+	}
+}
+
+func TestCreateProjectRequestDecodeAndAcceptedStatuses(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusCreated} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/vikunja/api/v2/projects" || r.URL.RawQuery != "" {
+				t.Errorf("method/path/query = %s %q %q", r.Method, r.URL.Path, r.URL.RawQuery)
+			}
+			if r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("content type = %q", r.Header.Get("Content-Type"))
+			}
+			assertBearer(t, r)
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != `{"title":"New Project"}` {
+				t.Errorf("body = %s", body)
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"id":12,"title":"New Project","unknown":null}`))
+		}))
+		project, err := New(server.Client()).CreateProject(context.Background(), server.URL+"/vikunja", "fake-token", "  New Project  ")
+		server.Close()
+		if err != nil || project.ID != 12 || project.Title != "New Project" {
+			t.Fatalf("status %d: project=%+v err=%v", status, project, err)
+		}
+		assertJSONEquivalent(t, `{"id":12,"title":"New Project","unknown":null}`, project)
+	}
+}
+
+func TestCreateProjectRejectsOtherStatusesAndIsSafe(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		want   error
+	}{{http.StatusUnauthorized, ErrUnauthorized}, {http.StatusForbidden, ErrForbidden}, {http.StatusNotFound, ErrNotFound}, {http.StatusAccepted, nil}, {http.StatusNoContent, nil}} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(test.status)
+			_, _ = w.Write([]byte("response-body-secret"))
+		}))
+		_, err := New(server.Client()).CreateProject(context.Background(), server.URL+"?query-secret#fragment-secret", "fake-token", "title-secret")
+		server.Close()
+		if err == nil || strings.Contains(err.Error(), "fake-token") || strings.Contains(err.Error(), "title-secret") || strings.Contains(err.Error(), "query-secret") || strings.Contains(err.Error(), "fragment-secret") || strings.Contains(err.Error(), "response-body-secret") {
+			t.Errorf("unsafe status %d error: %v", test.status, err)
+		}
+		if test.want != nil && !errors.Is(err, test.want) {
+			t.Errorf("status %d: %v", test.status, err)
+		}
+	}
+}
+
+func TestCreateProjectRejectsInvalidAcceptedStatusBodies(t *testing.T) {
+	invalidBodies := []string{
+		`{`,
+		`null`,
+		`"project"`,
+		`[]`,
+		`{}`,
+		`{"id":null}`,
+		`{"id":0}`,
+		`{"id":-1}`,
+		`{"id":"12"}`,
+		`{"id":12.5}`,
+		`{"id":9223372036854775808}`,
+		`{"id":12} {"id":13}`,
+	}
+	for _, status := range []int{http.StatusOK, http.StatusCreated} {
+		for _, body := range invalidBodies {
+			t.Run(http.StatusText(status), func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(body))
+				}))
+				_, err := New(server.Client()).CreateProject(context.Background(), server.URL+"?query-secret#fragment-secret", "fake-token", "title-secret")
+				server.Close()
+				if err == nil || err.Error() != "cannot decode project create response" {
+					t.Errorf("status %d body %q: %v", status, body, err)
+				}
+				for _, secret := range []string{"fake-token", "title-secret", "query-secret", "fragment-secret"} {
+					if strings.Contains(err.Error(), secret) {
+						t.Errorf("error exposes %q: %v", secret, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCreateProjectRedirectAndTransportErrorsAreSafe(t *testing.T) {
+	targetRequested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/projects" {
+			w.Header().Set("Location", "/redirect-target?token=fake-token")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		targetRequested = true
+		if r.Header.Get("Authorization") != "" {
+			t.Error("bearer token reached redirect target")
+		}
+	}))
+	defer server.Close()
+	_, err := New(server.Client()).CreateProject(context.Background(), server.URL, "fake-token", "title-secret")
+	if err == nil || !strings.Contains(err.Error(), "302") || strings.Contains(err.Error(), "fake-token") || strings.Contains(err.Error(), "title-secret") || targetRequested {
+		t.Fatalf("redirect error=%v target=%t", err, targetRequested)
+	}
+	c := New(&http.Client{Transport: roundTripError{err: errors.New("fake-token https://host/?secret")}})
+	if _, err := c.CreateProject(context.Background(), "https://host/base?query-secret#fragment-secret", "fake-token", "title-secret"); err == nil || strings.Contains(err.Error(), "fake-token") || strings.Contains(err.Error(), "title-secret") || strings.Contains(err.Error(), "query-secret") || strings.Contains(err.Error(), "fragment-secret") {
+		t.Fatalf("unsafe transport error: %v", err)
+	}
+}
 
 func TestListProjectsRequestAndDecode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

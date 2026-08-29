@@ -1,10 +1,17 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 )
 
 // Project is the minimal project representation returned by the Vikunja API.
@@ -109,6 +116,73 @@ func (c *Client) GetProject(baseURL, token string, id int64) (Project, error) {
 	}
 	return project, nil
 }
+
+// CreateProject creates a root project with a title only.
+func (c *Client) CreateProject(ctx context.Context, baseURL, token, title string) (Project, error) {
+	if ctx == nil {
+		return Project{}, errors.New("context must not be nil")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return Project{}, errors.New("project title must not be empty")
+	}
+	if utf8.RuneCountInString(title) > 250 {
+		return Project{}, errors.New("project title must be at most 250 runes")
+	}
+	payload, err := json.Marshal(struct {
+		Title string `json:"title"`
+	}{Title: title})
+	if err != nil {
+		return Project{}, errors.New("cannot encode project request")
+	}
+	target := endpoint(baseURL, "projects")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
+	if err != nil {
+		return Project{}, errors.New("cannot create request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return Project{}, fmt.Errorf("request to %s failed", safeURL(target))
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
+		if err := responseError(response, "project create request"); err != nil {
+			return Project{}, err
+		}
+		return Project{}, &StatusError{Operation: "project create request", StatusCode: response.StatusCode}
+	}
+	decoder := json.NewDecoder(response.Body)
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
+		return Project{}, errors.New("cannot decode project create response")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return Project{}, errors.New("cannot decode project create response")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+		return Project{}, errors.New("cannot decode project create response")
+	}
+	idRaw, present := object["id"]
+	if !present || bytes.Equal(bytes.TrimSpace(idRaw), []byte("null")) {
+		return Project{}, errors.New("cannot decode project create response")
+	}
+	var id int64
+	if err := json.Unmarshal(idRaw, &id); err != nil || id < 1 {
+		return Project{}, errors.New("cannot decode project create response")
+	}
+	var project Project
+	if err := json.Unmarshal(raw, &project); err != nil {
+		return Project{}, errors.New("cannot decode project create response")
+	}
+	return project, nil
+}
+
 func projectsListEndpoint(baseURL string, page, perPage int) (string, error) {
 	u, err := url.Parse(endpoint(baseURL, "projects"))
 	if err != nil {
