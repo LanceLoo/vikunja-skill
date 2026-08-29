@@ -52,6 +52,7 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks comments <task-id> [--page N] [--per-page N] [--q TEXT] [--order-by asc|desc]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments download --task-id N --attachment-id N --output PATH [--apply]")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments upload --task-id N --file PATH [--apply --confirm sha256:<64 lowercase hex>]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments delete --task-id N --attachment-id N [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "  vikunja-ops tasks create <project-id> --title TEXT [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks update <id> [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
@@ -59,7 +60,7 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks bulk-update --ids 12,34,56 [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "  vikunja-ops tasks delete --id N --project-id N [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "list、get、labels、comments 与 attachments 列表为只读命令，仅发送 GET 请求；attachments delete 是需确认的写入命令。")
+	fmt.Fprintln(out, "list、get、labels、comments 与 attachments 列表为只读命令，仅发送 GET 请求；attachments upload 和 attachments delete 是需确认的写入命令。")
 	fmt.Fprintln(out, "create、update 和 complete 默认输出 JSON 预览且不写入；仅 --apply 会执行写入。")
 	fmt.Fprintln(out, "bulk-update 与 delete 默认输出预览；--apply 与 --confirm 必须同时提供才执行写入。bulk-update 不支持 DELETE。")
 }
@@ -143,6 +144,13 @@ func printTaskAttachmentDownloadUsage(out io.Writer) {
 	fmt.Fprintln(out, "默认仅预览：恰好一次附件元数据 GET，不下载字节、不创建本地文件。")
 	fmt.Fprintln(out, "--apply 恰好执行一次元数据 GET 和一次字节 GET（仅接受 HTTP 200）；单文件硬上限 100 MiB，传输超时 10 分钟，拒绝重定向，不重试。")
 	fmt.Fprintln(out, "输出目标必须不存在，父目录必须已存在且不是符号链接；不自动创建目录；服务端文件名与 Content-Disposition 不影响目标路径。")
+}
+func printTaskAttachmentUploadUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments upload --task-id N --file PATH [--apply --confirm sha256:<64 lowercase hex>]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "仅支持一个本地普通文件（0 至 100 MiB），不支持位置参数、重复 --file、stdin 或批量输入。")
+	fmt.Fprintln(out, "默认预览会计算文件指纹并执行一次任务 GET。上传是远程写入：--apply 必须使用预览的 confirmation token。")
 }
 func printTaskAttachmentDeleteUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
