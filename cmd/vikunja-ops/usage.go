@@ -52,13 +52,14 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks comments <task-id> [--page N] [--per-page N] [--q TEXT] [--order-by asc|desc]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments download --task-id N --attachment-id N --output PATH [--apply]")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments delete --task-id N --attachment-id N [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "  vikunja-ops tasks create <project-id> --title TEXT [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks update <id> [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks complete <id> [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops tasks bulk-update --ids 12,34,56 [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "  vikunja-ops tasks delete --id N --project-id N [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "list、get、labels、comments 和 attachments 为只读命令，仅发送 GET 请求。")
+	fmt.Fprintln(out, "list、get、labels、comments 与 attachments 列表为只读命令，仅发送 GET 请求；attachments delete 是需确认的写入命令。")
 	fmt.Fprintln(out, "create、update 和 complete 默认输出 JSON 预览且不写入；仅 --apply 会执行写入。")
 	fmt.Fprintln(out, "bulk-update 与 delete 默认输出预览；--apply 与 --confirm 必须同时提供才执行写入。bulk-update 不支持 DELETE。")
 }
@@ -142,6 +143,13 @@ func printTaskAttachmentDownloadUsage(out io.Writer) {
 	fmt.Fprintln(out, "默认仅预览：恰好一次附件元数据 GET，不下载字节、不创建本地文件。")
 	fmt.Fprintln(out, "--apply 恰好执行一次元数据 GET 和一次字节 GET（仅接受 HTTP 200）；单文件硬上限 100 MiB，传输超时 10 分钟，拒绝重定向，不重试。")
 	fmt.Fprintln(out, "输出目标必须不存在，父目录必须已存在且不是符号链接；不自动创建目录；服务端文件名与 Content-Disposition 不影响目标路径。")
+}
+func printTaskAttachmentDeleteUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks attachments delete --task-id N --attachment-id N [--apply --confirm TOKEN]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "仅支持一个明确任务和附件 ID，不支持位置参数、批量、filter 或 stdin 输入。预览执行完整附件元数据扫描（分页时可有多个 GET），不发送 DELETE。")
+	fmt.Fprintln(out, "--apply 与预览的 --confirm TOKEN 必须同时提供。删除为单个无请求体 DELETE，仅接受 HTTP 204；之后执行完整分页元数据回读；不重试、无并发、无回滚。")
 }
 func printTasksListUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
