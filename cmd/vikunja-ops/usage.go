@@ -48,6 +48,7 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
 	fmt.Fprintln(out, "  vikunja-ops tasks list [--project N] [--page N] [--per-page N] [--query TEXT] [--filter EXPR] [--filter-timezone TZ] [--include-nulls] [--sort-by FIELD]... [--order-by asc|desc]...")
 	fmt.Fprintln(out, "  vikunja-ops tasks get <id>  (id 为正整数)")
+	fmt.Fprintln(out, "  vikunja-ops tasks relations <task-id>")
 	fmt.Fprintln(out, "  vikunja-ops tasks labels <task-id> [--page N] [--per-page N] [--q TEXT]")
 	fmt.Fprintln(out, "  vikunja-ops tasks comments <task-id> [--page N] [--per-page N] [--q TEXT] [--order-by asc|desc]")
 	fmt.Fprintln(out, "  vikunja-ops tasks attachments <task-id> [--page N] [--per-page N]")
@@ -60,7 +61,7 @@ func printTasksUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks bulk-update --ids 12,34,56 [--title TEXT] [--description TEXT] [--priority N] [--due-date RFC3339] [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "  vikunja-ops tasks delete --id N --project-id N [--apply --confirm TOKEN]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "list、get、labels、comments 与 attachments 列表为只读命令，仅发送 GET 请求；attachments upload 和 attachments delete 是需确认的写入命令。")
+	fmt.Fprintln(out, "list、get、relations、labels、comments 与 attachments 列表为只读命令，仅发送 GET 请求；attachments upload 和 attachments delete 是需确认的写入命令。")
 	fmt.Fprintln(out, "create、update 和 complete 默认输出 JSON 预览且不写入；仅 --apply 会执行写入。")
 	fmt.Fprintln(out, "bulk-update 与 delete 默认输出预览；--apply 与 --confirm 必须同时提供才执行写入。bulk-update 不支持 DELETE。")
 }
@@ -172,4 +173,10 @@ func printTasksGetUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops tasks get <id>  (id 为正整数)")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "读取 Vikunja 任务详情；仅发送 GET 请求。")
+}
+func printTaskRelationsUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops tasks relations <task-id>")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "读取任务详情中的 related_tasks；task-id 必须是正整数；仅发送 GET 请求。")
 }

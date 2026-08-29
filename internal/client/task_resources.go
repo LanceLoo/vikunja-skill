@@ -16,6 +16,32 @@ type TaskComments = json.RawMessage
 // TaskAttachments retains the complete paginated v2 task attachments response, including unknown fields, null values, and schema metadata.
 type TaskAttachments = json.RawMessage
 
+// TaskRelations retains the related_tasks payload from a task detail response,
+// including unknown fields and null values.
+type TaskRelations = json.RawMessage
+
+// GetTaskRelations retrieves related_tasks through the v2 task detail endpoint.
+func (c *Client) GetTaskRelations(baseURL, token string, taskID int64) (TaskRelations, error) {
+	if taskID < 1 {
+		return nil, errors.New("task id must be positive")
+	}
+	response, err := c.get(endpoint(baseURL, "tasks")+"/"+strconv.FormatInt(taskID, 10), token)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if err := responseError(response, "task relations request"); err != nil {
+		return nil, err
+	}
+	var detail struct {
+		RelatedTasks TaskRelations `json:"related_tasks"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&detail); err != nil {
+		return nil, errors.New("cannot decode task relations response")
+	}
+	return detail.RelatedTasks, nil
+}
+
 // ListLabels retrieves one page of labels from the v2 API.
 func (c *Client) ListLabels(baseURL, token string, page, perPage int, query, format string) (Labels, error) {
 	if !validLabelFormat(format) {

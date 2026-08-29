@@ -27,6 +27,8 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		return runTasksList(args[1:], stdout, stderr)
 	case "get":
 		return runTasksGet(args[1:], stdout, stderr)
+	case "relations":
+		return runTaskRelations(args[1:], stdout, stderr)
 	case "create":
 		return runTasksCreate(args[1:], stdout, stderr)
 	case "update":
@@ -323,6 +325,32 @@ func runTasksGet(args []string, stdout, stderr io.Writer) int {
 	}
 	return writeJSON("tasks get", task, stdout, stderr)
 }
+
+func runTaskRelations(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--help" {
+		printTaskRelationsUsage(stdout)
+		return 0
+	}
+	if len(args) != 1 {
+		printTaskRelationsUsage(stderr)
+		return 2
+	}
+	id, ok := parseTaskID("tasks relations", args, printTaskRelationsUsage, stderr)
+	if !ok {
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "tasks relations: %v\n", err)
+		return 1
+	}
+	relations, err := client.New(nil).GetTaskRelations(cfg.BaseURL, cfg.Token, id)
+	if err != nil {
+		return printTasksError("tasks relations", err, stderr)
+	}
+	return writeJSON("tasks relations", relations, stdout, stderr)
+}
+
 func printTasksError(command string, err error, stderr io.Writer) int {
 	return printResourceError(command, err, "任务读取被拒绝", "任务或项目不存在", stderr)
 }

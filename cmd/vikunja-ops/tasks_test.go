@@ -127,6 +127,119 @@ func TestTasksGetAndNotFound(t *testing.T) {
 	}
 }
 
+func TestTaskRelations(t *testing.T) {
+	token := "test-secret-token"
+	const response = `{"id":42,"related_tasks":{"blocks":[{"id":7,"unknown":null}]},"other":{"ignored":true}}`
+	const related = `{"blocks":[{"id":7,"unknown":null}]}`
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/tasks/42" || r.Header.Get("Authorization") != "Bearer "+token {
+			t.Errorf("request = %s %s authorization = %q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+	t.Setenv("VIKUNJA_URL", server.URL)
+	t.Setenv("VIKUNJA_TOKEN", token)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"tasks", "relations", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 || stdout.String() != related+"\n" {
+		t.Fatalf("code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--pretty", "tasks", "relations", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("pretty code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
+	}
+	assertPrettyJSON(t, stdout.Bytes())
+	var got, want any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("decode pretty output: %v", err)
+	}
+	if err := json.Unmarshal([]byte(related), &want); err != nil || !jsonEqual(got, want) {
+		t.Fatalf("pretty output = %q, error = %v", stdout.String(), err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
+
+func TestTaskRelationsInvalidArgumentsDoNotRequest(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+	for _, config := range []struct{ baseURL, token string }{
+		{"", ""},
+		{"://invalid-url", ""},
+		{server.URL, ""},
+	} {
+		t.Setenv("VIKUNJA_URL", config.baseURL)
+		t.Setenv("VIKUNJA_TOKEN", config.token)
+		for _, args := range [][]string{
+			{"tasks", "relations"},
+			{"tasks", "relations", "0"},
+			{"tasks", "relations", "nope"},
+			{"tasks", "relations", "1", "extra"},
+			{"tasks", "relations", "1", "--apply"},
+			{"tasks", "relations", "1", "--confirm", "sha256:deadbeef"},
+			{"tasks", "relations", "1", "create", "blocks"},
+		} {
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 || !strings.Contains(stderr.String(), "用法:") {
+				t.Errorf("config=%q/%q run(%v) = %d, stdout %q stderr %q", config.baseURL, config.token, args, code, stdout.String(), stderr.String())
+			}
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("invalid relation arguments made %d HTTP requests", requests)
+	}
+}
+
+func TestTaskRelationsResourceErrorsAreSafe(t *testing.T) {
+	token := "test-secret-token"
+	baseSecret, fragmentSecret := "base-secret", "fragment-secret"
+	for _, test := range []struct {
+		name, message string
+		handler       http.HandlerFunc
+	}{
+		{"unauthorized", "认证失败：服务未接受 Token", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }},
+		{"forbidden", "权限不足：任务读取被拒绝", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }},
+		{"not-found", "任务或项目不存在", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) }},
+		{"redirect", "302", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Location", "/target?token="+token)
+			w.WriteHeader(http.StatusFound)
+		}},
+		{"service", "502", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) }},
+		{"malformed-json", "cannot decode task relations response", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"related_tasks":`)) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(test.handler)
+			defer server.Close()
+			t.Setenv("VIKUNJA_URL", server.URL+"?"+baseSecret+"#"+fragmentSecret)
+			t.Setenv("VIKUNJA_TOKEN", token)
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"tasks", "relations", "42"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.message) {
+				t.Fatalf("code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
+			}
+			for _, secret := range []string{token, baseSecret, fragmentSecret} {
+				if strings.Contains(stderr.String(), secret) {
+					t.Errorf("stderr leaked %q: %q", secret, stderr.String())
+				}
+			}
+		})
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	baseURL := server.URL
+	server.Close()
+	t.Setenv("VIKUNJA_URL", baseURL+"?"+baseSecret+"#"+fragmentSecret)
+	t.Setenv("VIKUNJA_TOKEN", token)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"tasks", "relations", "42"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "request to") || strings.Contains(stderr.String(), token) || strings.Contains(stderr.String(), baseSecret) || strings.Contains(stderr.String(), fragmentSecret) {
+		t.Fatalf("transport: code = %d stdout %q stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestTasksPrettyInvalidArgumentsWriteOnlyStderr(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -187,7 +300,7 @@ func TestTasksInvalidArgumentsDoNotRequest(t *testing.T) {
 }
 
 func TestTasksHelpWritesOnlyStdout(t *testing.T) {
-	for _, args := range [][]string{{"tasks", "--help"}, {"tasks", "list", "--help"}, {"tasks", "get", "--help"}, {"tasks", "create", "--help"}, {"tasks", "update", "--help"}, {"tasks", "complete", "--help"}} {
+	for _, args := range [][]string{{"tasks", "--help"}, {"tasks", "list", "--help"}, {"tasks", "get", "--help"}, {"tasks", "relations", "--help"}, {"tasks", "create", "--help"}, {"tasks", "update", "--help"}, {"tasks", "complete", "--help"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 0 {
 			t.Errorf("run(%v) = %d, want 0", args, code)

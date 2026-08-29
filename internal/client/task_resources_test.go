@@ -113,6 +113,76 @@ func TestLabelRedirectsAreNotFollowedAndTokenIsSafe(t *testing.T) {
 	}
 }
 
+func TestGetTaskRelationsPreservesJSONAndHandlesSafeErrors(t *testing.T) {
+	response := `{"id":42,"related_tasks":[{"id":7,"unknown":null},{"id":8,"nested":{"value":null}}],"ignored":null}`
+	want := `[{"id":7,"unknown":null},{"id":8,"nested":{"value":null}}]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/vikunja/api/v2/tasks/42" {
+			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
+		}
+		assertBearer(t, r)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+	relations, err := New(server.Client()).GetTaskRelations(server.URL+"/vikunja", "fake-token", 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONEquivalent(t, want, relations)
+
+	requests := 0
+	invalidServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer invalidServer.Close()
+	if _, err := New(invalidServer.Client()).GetTaskRelations(invalidServer.URL, "fake-token", 0); err == nil || requests != 0 {
+		t.Fatalf("invalid relation request: err=%v requests=%d", err, requests)
+	}
+	for _, test := range []struct {
+		status int
+		want   error
+	}{{http.StatusUnauthorized, ErrUnauthorized}, {http.StatusForbidden, ErrForbidden}, {http.StatusNotFound, ErrNotFound}} {
+		statusServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(test.status) }))
+		_, err := New(statusServer.Client()).GetTaskRelations(statusServer.URL, "fake-token", 42)
+		statusServer.Close()
+		if !errors.Is(err, test.want) {
+			t.Errorf("status %d: %v", test.status, err)
+		}
+	}
+	c := New(&http.Client{Transport: roundTripError{err: errors.New("fake-token https://host/?secret")}})
+	if _, err := c.GetTaskRelations("https://host/base?query", "fake-token", 42); err == nil || strings.Contains(err.Error(), "fake-token") || strings.Contains(err.Error(), "query") {
+		t.Fatalf("unsafe transport error: %v", err)
+	}
+	serviceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	defer serviceServer.Close()
+	if _, err := New(serviceServer.Client()).GetTaskRelations(serviceServer.URL+"?base-secret", "fake-token", 42); err == nil || !strings.Contains(err.Error(), "502") || strings.Contains(err.Error(), "fake-token") || strings.Contains(err.Error(), "base-secret") {
+		t.Fatalf("unsafe service error: %v", err)
+	}
+	malformedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"related_tasks":`)) }))
+	defer malformedServer.Close()
+	if _, err := New(malformedServer.Client()).GetTaskRelations(malformedServer.URL, "fake-token", 42); err == nil || err.Error() != "cannot decode task relations response" {
+		t.Fatalf("malformed response error: %v", err)
+	}
+}
+
+func TestTaskRelationsRedirectsAreNotFollowedAndTokenIsSafe(t *testing.T) {
+	targetRequested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/tasks/42":
+			assertBearer(t, r)
+			w.Header().Set("Location", "/redirect-target?token=fake-token")
+			w.WriteHeader(http.StatusFound)
+		case "/redirect-target":
+			targetRequested = true
+			t.Error("redirect target must not be requested")
+		}
+	}))
+	defer server.Close()
+	_, err := New(server.Client()).GetTaskRelations(server.URL, "fake-token", 42)
+	if err == nil || !strings.Contains(err.Error(), "302") || strings.Contains(err.Error(), "fake-token") || targetRequested {
+		t.Fatalf("unsafe redirect result: %v, target requested: %t", err, targetRequested)
+	}
+}
+
 func TestListTaskCommentsRequestPreservesJSON(t *testing.T) {
 	response := `{"items":[{"id":7,"comment":null,"author":{"id":2},"unknown":{"nested":true}}],"total":1,"page":2,"per_page":25,"total_pages":1,"$schema":"https://example.test/comments.json","extra":null}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
