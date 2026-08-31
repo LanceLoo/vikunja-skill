@@ -32,6 +32,8 @@ func runProjects(args []string, stdout, stderr io.Writer) int {
 		return runProjectsCreate(args[1:], stdout, stderr)
 	case "update":
 		return runProjectsUpdate(args[1:], stdout, stderr)
+	case "delete":
+		return runProjectsDelete(args[1:], stdout, stderr)
 	default:
 		printProjectsUsage(stderr)
 		return 2

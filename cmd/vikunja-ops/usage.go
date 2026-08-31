@@ -33,8 +33,15 @@ func printProjectsUsage(out io.Writer) {
 	fmt.Fprintln(out, "  vikunja-ops projects get <id>  (id 为非负整数)")
 	fmt.Fprintln(out, "  vikunja-ops projects create --title TEXT [--apply]")
 	fmt.Fprintln(out, "  vikunja-ops projects update <positive-id> --title TEXT [--apply]")
+	fmt.Fprintln(out, "  vikunja-ops projects delete <positive-id> [--apply --confirm sha256:<64lowerhex>]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "读取 Vikunja 项目；仅发送 GET 请求。projects create 默认仅预览；--apply 创建后执行一次 GET 回读，不重试。projects update 仅更新根项目标题；预览一次预检 GET，写入时为预检 GET、一次 PATCH 与一次回读，无重试且无并发前置条件。默认项目身份未由 API 暴露。")
+	fmt.Fprintln(out, "读取 Vikunja 项目；create、update 与 delete 均需显式 --apply。projects delete 使用严格 v2 可见范围扫描和确认 token；默认项目身份会在删除安全扫描中检查。")
+}
+func printProjectsDeleteUsage(out io.Writer) {
+	fmt.Fprintln(out, "用法:")
+	fmt.Fprintln(out, "  vikunja-ops projects delete <positive-id> [--apply --confirm sha256:<64lowerhex>]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "仅支持一个项目，可为任意层级。删除范围仅为目标项目及其递归后代，不包括祖先或兄弟项目。预览执行受限的 v2 安全扫描，输出调用者可见范围及确认 token；--apply 必须使用同一快照的 token。删除最多一次，且仅接受 204，随后恰好一次 GET 回读必须为 404；不重试、非原子，服务端可能有不可见级联。")
 }
 func printProjectsListUsage(out io.Writer) {
 	fmt.Fprintln(out, "用法:")
