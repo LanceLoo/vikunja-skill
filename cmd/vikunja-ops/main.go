@@ -17,16 +17,32 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("vikunja-ops", flag.ContinueOnError)
-	flags.SetOutput(stdout)
-	flags.Usage = func() { printUsage(flags.Output()) }
+	flags.SetOutput(stderr)
+	// Help is defined explicitly so all accepted top-level help forms use stdout
+	// without flag's automatic ErrHelp output.
+	flags.Usage = func() {}
+	showHelp := flags.Bool("help", false, "输出帮助")
+	showHelpShort := flags.Bool("h", false, "输出帮助")
 	pretty := flags.Bool("pretty", false, "以两空格缩进输出 JSON")
+	showVersion := flags.Bool("version", false, "输出版本")
 	if err := flags.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
+		printUsage(stderr)
 		return 2
 	}
+	if *showHelp || *showHelpShort {
+		printUsage(stdout)
+		return 0
+	}
 	remaining := flags.Args()
+	if *showVersion {
+		if len(remaining) != 0 {
+			fmt.Fprintln(stderr, "--version must be used without a command or arguments")
+			printUsage(stderr)
+			return 2
+		}
+		printVersion(stdout)
+		return 0
+	}
 	if len(remaining) == 0 {
 		printUsage(stdout)
 		return 0
@@ -44,6 +60,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "doctor":
 		return runDoctor(remaining[1:], stdout, stderr)
 	default:
+		fmt.Fprintf(stderr, "unknown command %q\n", remaining[0])
 		printUsage(stderr)
 		return 2
 	}

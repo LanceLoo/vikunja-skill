@@ -6,24 +6,38 @@ import (
 	"testing"
 )
 
-func TestLoadEnvironmentPrecedenceAndDotEnvFallback(t *testing.T) {
+func TestLoadIgnoresEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	writeEnv(t, dir, "VIKUNJA_URL=http://from-file/vikunja/\nVIKUNJA_TOKEN=file-token\n")
-	withConfigEnvironment(t, dir, "https://from-environment/base/", "")
+	withWorkingDirectory(t, dir)
+	t.Setenv("VIKUNJA_URL", "https://from-environment/base/")
+	t.Setenv("VIKUNJA_TOKEN", "environment-token")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.BaseURL != "https://from-environment/base" || cfg.Token != "file-token" {
+	if cfg.BaseURL != "http://from-file/vikunja" || cfg.Token != "file-token" {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 }
 
 func TestLoadMissingConfiguration(t *testing.T) {
 	dir := t.TempDir()
-	withConfigEnvironment(t, dir, "", "")
+	withWorkingDirectory(t, dir)
+	t.Setenv("VIKUNJA_URL", "https://environment.test")
+	t.Setenv("VIKUNJA_TOKEN", "environment-token")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() succeeded without configuration")
+	}
+}
+
+func TestLoadIncompleteDotEnv(t *testing.T) {
+	dir := t.TempDir()
+	writeEnv(t, dir, "VIKUNJA_URL=https://file.test\n")
+	withWorkingDirectory(t, dir)
+	t.Setenv("VIKUNJA_TOKEN", "environment-token")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() succeeded with incomplete .env")
 	}
 }
 
@@ -64,7 +78,7 @@ func writeEnv(t *testing.T, dir, content string) {
 	}
 }
 
-func withConfigEnvironment(t *testing.T, dir, baseURL, token string) {
+func withWorkingDirectory(t *testing.T, dir string) {
 	t.Helper()
 	oldDir, err := os.Getwd()
 	if err != nil {
@@ -73,7 +87,5 @@ func withConfigEnvironment(t *testing.T, dir, baseURL, token string) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("VIKUNJA_URL", baseURL)
-	t.Setenv("VIKUNJA_TOKEN", token)
 	t.Cleanup(func() { _ = os.Chdir(oldDir) })
 }

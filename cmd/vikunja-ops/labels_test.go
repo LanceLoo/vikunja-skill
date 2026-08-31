@@ -12,8 +12,7 @@ func TestLabelsInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 	for _, args := range [][]string{{"labels", "list", "--page", "0"}, {"labels", "list", "--format", "json"}, {"tasks", "labels", "0"}, {"tasks", "labels", "nope"}, {"tasks", "labels", "1", "--per-page", "1001"}, {"tasks", "labels", "1", "--format", "json"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
@@ -43,8 +42,7 @@ func TestLabelsResourceErrorsAreSafe(t *testing.T) {
 				w.WriteHeader(test.status)
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?base-secret")
-			t.Setenv("VIKUNJA_TOKEN", token)
+			configureTest(t, server.URL+"?base-secret", token)
 			for _, args := range [][]string{{"labels", "list", "--q", "search-secret"}, {"tasks", "labels", "42", "--q", "search-secret"}} {
 				var stdout, stderr bytes.Buffer
 				if code := run(args, &stdout, &stderr); code != 1 {

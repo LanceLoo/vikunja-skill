@@ -119,8 +119,7 @@ func TestTasksDeleteInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL, taskDeleteToken)
 
 	validToken := taskDeleteTokenFor(t, 12, 7)
 	otherToken := taskDeleteTokenFor(t, 12, 8)
@@ -164,8 +163,7 @@ func TestTasksDeleteInvalidArgumentsDoNotRequest(t *testing.T) {
 func TestTasksDeletePreview(t *testing.T) {
 	server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{})
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL, taskDeleteToken)
 
 	wantToken := taskDeleteTokenFor(t, 12, 7)
 	var stdout, stderr bytes.Buffer
@@ -215,8 +213,7 @@ func TestTasksDeletePreview(t *testing.T) {
 func TestTasksDeletePreviewPreflightGETFailureDeletesNothing(t *testing.T) {
 	server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{getStatus: http.StatusNotFound})
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL, taskDeleteToken)
 
 	var stdout, stderr bytes.Buffer
 	args := []string{"tasks", "delete", "--id", "12", "--project-id", "7"}
@@ -234,8 +231,7 @@ func TestTasksDeletePreflightScopeMismatchPreventsDelete(t *testing.T) {
 		`{"id":12,"title":"Task 12","project_id":8}`,
 	} {
 		server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{getBody: body})
-		t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-		t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+		configureTest(t, server.URL+"?base-secret#fragment-secret", taskDeleteToken)
 
 		token := taskDeleteTokenFor(t, 12, 7)
 		var stdout, stderr bytes.Buffer
@@ -260,8 +256,7 @@ func TestTasksDeletePreflightScopeMismatchPreventsDelete(t *testing.T) {
 func TestTasksDeleteApplySuccess(t *testing.T) {
 	server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{})
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL, taskDeleteToken)
 
 	token := taskDeleteTokenFor(t, 12, 7)
 	var stdout, stderr bytes.Buffer
@@ -329,8 +324,7 @@ func TestTasksDeleteApplySuccess(t *testing.T) {
 func TestTasksDeleteApplyReadbackStillPresent(t *testing.T) {
 	server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{afterGetStatus: http.StatusOK})
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL, taskDeleteToken)
 
 	var stdout, stderr bytes.Buffer
 	args := applyTaskDeleteArgs(12, 7, taskDeleteTokenFor(t, 12, 7))
@@ -346,8 +340,7 @@ func TestTasksDeleteApplyReadbackStillPresent(t *testing.T) {
 func TestTasksDeleteApplyReadbackUnverified(t *testing.T) {
 	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests, http.StatusInternalServerError} {
 		server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{afterGetStatus: status})
-		t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-		t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+		configureTest(t, server.URL+"?base-secret#fragment-secret", taskDeleteToken)
 
 		var stdout, stderr bytes.Buffer
 		args := applyTaskDeleteArgs(12, 7, taskDeleteTokenFor(t, 12, 7))
@@ -389,8 +382,7 @@ func TestTasksDeleteApplyReadbackTransportError(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL+"?base-secret#fragment-secret", taskDeleteToken)
 
 	var stdout, stderr bytes.Buffer
 	args := applyTaskDeleteArgs(12, 7, taskDeleteTokenFor(t, 12, 7))
@@ -418,8 +410,7 @@ func TestTasksDeleteStatusMatrixSingleReadbackNoRetry(t *testing.T) {
 	}
 	for _, tc := range cases {
 		server, requests := newTaskDeleteServer(t, taskDeleteServerOptions{deleteStatus: tc.status})
-		t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-		t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+		configureTest(t, server.URL+"?base-secret#fragment-secret", taskDeleteToken)
 
 		var stdout, stderr bytes.Buffer
 		args := applyTaskDeleteArgs(12, 7, taskDeleteTokenFor(t, 12, 7))
@@ -454,8 +445,7 @@ func TestTasksDeleteStatusMatrixSingleReadbackNoRetry(t *testing.T) {
 func TestTasksDeleteReconciliation404ClaimsNoCausality(t *testing.T) {
 	for _, deleteStatus := range []int{http.StatusForbidden, http.StatusNotFound, http.StatusInternalServerError} {
 		server, _ := newTaskDeleteServer(t, taskDeleteServerOptions{deleteStatus: deleteStatus, failedGetStatus: http.StatusNotFound})
-		t.Setenv("VIKUNJA_URL", server.URL)
-		t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+		configureTest(t, server.URL, taskDeleteToken)
 
 		var stdout, stderr bytes.Buffer
 		args := applyTaskDeleteArgs(12, 7, taskDeleteTokenFor(t, 12, 7))
@@ -487,8 +477,7 @@ func TestTasksDeleteTransportErrorOutcomeUnknown(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-	t.Setenv("VIKUNJA_TOKEN", taskDeleteToken)
+	configureTest(t, server.URL+"?base-secret#fragment-secret", taskDeleteToken)
 
 	var stdout, stderr bytes.Buffer
 	args := applyTaskDeleteArgs(12, 7, taskDeleteTokenFor(t, 12, 7))

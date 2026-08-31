@@ -4,7 +4,7 @@
 
 ## 配置与构建
 
-当前实现优先读取进程环境变量 `VIKUNJA_URL` 和 `VIKUNJA_TOKEN`。如果任一变量缺失，才读取进程当前工作目录中的 `./.env`，并仅用它补齐缺失项；两个环境变量均已完整提供时不会读取 `./.env`。CLI 不会按可执行文件、源码或 skill 所在目录自动搜索 `.env`。
+当前实现只读取进程当前工作目录中的 `./.env`。`VIKUNJA_URL` 和 `VIKUNJA_TOKEN` 必须同时存在且有效；缺少任一项都会报错。进程环境变量会被忽略，CLI 也不会按可执行文件、源码或 skill 所在目录搜索 `.env`。
 
 本地操作者可参考 `.env.example` 配置完整的一对值，例如：
 
@@ -17,7 +17,7 @@ VIKUNJA_TOKEN=
 
 不要提交真实凭据，也不要在文档、日志或对话中写入真实 URL、Token、`Authorization` 请求头或含敏感信息的响应。
 
-不要只提供一个环境变量并依赖未知当前工作目录中的 `.env` 补齐另一个。在源码仓库中使用 Go 时，应将完整 `.env` 放在该源码仓库根目录，并从该目录运行 `go run ./cmd/vikunja-ops -- doctor`。若完整 skill 位于 `.agents/skills/vikunja-ops/`，只有已获准使用的 `vikunja-ops.exe` 实际位于该 skill 目录时，才可将 `.env` 放在其中并从该目录调用该二进制；不能假定该目录存在 `cmd/`，或把它作为 `go run` 的工作目录。不应从无关项目目录通过绝对路径调用该可执行文件并依赖该目录的 `.env`。
+不要依赖进程环境变量，也不要把 Token 作为命令参数传递。在源码仓库中使用 Go 时，应将完整 `.env` 放在该源码仓库根目录，并从该目录运行 `go run ./cmd/vikunja-ops -- doctor`。若完整 skill 位于 `.agents/skills/vikunja-ops/`，只有已获准使用的 `vikunja-ops.exe` 实际位于该 skill 目录时，才可将 `.env` 放在其中并从该目录调用该二进制；不能假定该目录存在 `cmd/`，或把它作为 `go run` 的工作目录。不应从无关项目目录通过绝对路径调用该可执行文件并依赖该目录的 `.env`。
 
 调用环境若已通过 `PATH` 或绝对路径提供 `vikunja-ops`，可直接调用。源码环境可构建：
 
@@ -47,6 +47,20 @@ go run ./cmd/vikunja-ops -- doctor
 ```sh
 vikunja-ops --pretty projects list
 ```
+
+顶层 `vikunja-ops --version` 输出程序版本。顶层 `--help` 输出到 stdout；无法识别的顶层参数、缺失命令等错误输出到 stderr，并以退出码 `2` 结束。
+
+## Release 制品
+
+Release workflow 只接受严格的最终版本标签 `vMAJOR.MINOR.PATCH`，不接受预发布或附加元数据标签。流程在构建时注入版本，并打包以下目标：
+
+- Windows amd64
+- Linux amd64
+- Linux arm64
+
+每个压缩包包含对应二进制以及 `README.md`、`SKILL.md`、`.env.example`、`LICENSE`，同时发布校验和。流程会校验制品清单、校验和，以及解压后的 Linux amd64 二进制。
+
+Windows amd64 二进制已经交叉编译并完成本地测试，但当前没有原生远程 Windows CI job；这是 v1 发布接受的限制，后续应补充原生 Windows CI 验证，不能将现状描述为 Windows CI 已验证。
 
 ## 安全模型
 

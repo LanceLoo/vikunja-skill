@@ -14,8 +14,7 @@ func TestProjectsUpdateLocalValidationAndFlagLookingTitles(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	for _, args := range [][]string{
 		{"projects", "update", "--help"},
 	} {
@@ -73,8 +72,7 @@ func TestProjectsUpdatePreviewNoopAndSuccess(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 			args := []string{"projects", "update", "77", "--title", "New"}
 			if tc.apply {
 				args = append(args, "--apply")
@@ -127,8 +125,7 @@ func TestProjectsUpdatePreflightAndPostAttemptFailures(t *testing.T) {
 				w.WriteHeader(tc.last)
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 			var out, err bytes.Buffer
 			if code := run([]string{"projects", "update", "77", "--title", "New", "--apply"}, &out, &err); code != 1 || out.Len() != 0 {
 				t.Fatalf("code=%d req=%d stdout=%q stderr=%q", code, requests, out.String(), err.String())
@@ -164,8 +161,7 @@ func TestProjectsUpdateUntrustedPatchCannotBeProvedByMatchingReadback(t *testing
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL+"?url-secret#fragment-secret")
-	t.Setenv("VIKUNJA_TOKEN", "token-secret")
+	configureTest(t, server.URL+"?url-secret#fragment-secret", "token-secret")
 	var out, err bytes.Buffer
 	if code := run([]string{"projects", "update", "77", "--title", "New", "--apply"}, &out, &err); code != 1 || out.Len() != 0 || len(requests) != 3 {
 		t.Fatalf("code=%d requests=%v stdout=%q stderr=%q", code, requests, out.String(), err.String())

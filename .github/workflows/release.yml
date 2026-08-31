@@ -38,6 +38,21 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            printf '%s\n' "Release packaging requires a tag push." >&2
+            exit 1
+          fi
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            printf '%s\n' "Release tag must be strict SemVer in the form vMAJOR.MINOR.PATCH (without prerelease or build metadata): $tag" >&2
+            exit 1
+          fi
+
       - name: Build release packages
         shell: bash
         run: |
@@ -50,11 +65,11 @@ jobs:
           linux_arm64_archive="vikunja-skill_${tag}_linux_arm64.tar.gz"
 
           mkdir -p "$release_dir"
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o "$release_dir/vikunja-ops.exe" ./cmd/vikunja-ops
-          cp SKILL.md .env.example README.md "$release_dir/"
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=${tag}" -o "$release_dir/vikunja-ops.exe" ./cmd/vikunja-ops
+          cp SKILL.md .env.example README.md LICENSE "$release_dir/"
           (
             cd "$release_dir"
-            zip -r "../$windows_archive" vikunja-ops.exe SKILL.md .env.example README.md
+            zip -r "../$windows_archive" vikunja-ops.exe SKILL.md .env.example README.md LICENSE
           )
 
           for arch in amd64 arm64; do
@@ -62,16 +77,70 @@ jobs:
             archive="vikunja-skill_${tag}_linux_${arch}.tar.gz"
 
             mkdir -p "$package_dir"
-            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -o "$package_dir/vikunja-ops" ./cmd/vikunja-ops
+            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "-X main.version=${tag}" -o "$package_dir/vikunja-ops" ./cmd/vikunja-ops
             chmod +x "$package_dir/vikunja-ops"
-            cp SKILL.md .env.example README.md "$package_dir/"
-            tar -C "$package_dir" -czf "$PWD/$archive" vikunja-ops SKILL.md .env.example README.md
+            cp SKILL.md .env.example README.md LICENSE "$package_dir/"
+            tar -C "$package_dir" -czf "$PWD/$archive" vikunja-ops SKILL.md .env.example README.md LICENSE
           done
 
           sha256sum "$windows_archive" > "$windows_archive.sha256"
           sha256sum "$linux_amd64_archive" > "$linux_amd64_archive.sha256"
           sha256sum "$linux_arm64_archive" > "$linux_arm64_archive.sha256"
           sha256sum "$windows_archive" "$linux_amd64_archive" "$linux_arm64_archive" > checksums.txt
+
+      - name: Verify release packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          windows_archive="vikunja-skill_${tag}_windows_amd64.zip"
+          linux_amd64_archive="vikunja-skill_${tag}_linux_amd64.tar.gz"
+          linux_arm64_archive="vikunja-skill_${tag}_linux_arm64.tar.gz"
+
+          verify_manifest() {
+            local archive="$1"
+            local binary="$2"
+            local archive_type="$3"
+            local expected actual
+
+            expected="$(printf '%s\n' "$binary" SKILL.md .env.example README.md LICENSE | sort)"
+            if [ "$archive_type" = "zip" ]; then
+              # Directory entries, including empty directories, are unexpected.
+              actual="$(zipinfo -1 "$archive" | sort)"
+            else
+              actual="$(tar -tzf "$archive" | sort)"
+            fi
+
+            if [ "$actual" != "$expected" ]; then
+              printf '%s\n' "Unexpected manifest in $archive:" >&2
+              diff -u <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2 || true
+              exit 1
+            fi
+          }
+
+          verify_manifest "$windows_archive" vikunja-ops.exe zip
+          verify_manifest "$linux_amd64_archive" vikunja-ops tar
+          verify_manifest "$linux_arm64_archive" vikunja-ops tar
+
+          sha256sum -c "$windows_archive.sha256"
+          sha256sum -c "$linux_amd64_archive.sha256"
+          sha256sum -c "$linux_arm64_archive.sha256"
+          sha256sum -c checksums.txt
+
+          extract_dir="$(mktemp -d)"
+          trap 'rm -rf "$extract_dir"' EXIT
+          tar -xzf "$linux_amd64_archive" -C "$extract_dir"
+          if [ ! -x "$extract_dir/vikunja-ops" ]; then
+            printf '%s\n' "Extracted Linux amd64 binary is not executable." >&2
+            exit 1
+          fi
+
+          version_output="$("$extract_dir/vikunja-ops" --version)"
+          if [ "$version_output" != "vikunja-ops $tag" ]; then
+            printf '%s\n' "Linux amd64 binary reported unexpected version: $version_output" >&2
+            exit 1
+          fi
 
       - name: Create GitHub Release
         env:

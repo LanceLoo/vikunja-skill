@@ -105,8 +105,7 @@ func TestTasksBulkUpdateInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL, bulkUpdateToken)
 
 	tooMany := make([]string, 101)
 	for i := range tooMany {
@@ -153,8 +152,7 @@ func TestTasksBulkUpdateInvalidArgumentsDoNotRequest(t *testing.T) {
 func TestTasksBulkUpdatePreview(t *testing.T) {
 	server, requests := newBulkUpdateServer(t, http.StatusOK, `{}`, nil)
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL, bulkUpdateToken)
 
 	wantToken := bulkUpdateTokenForArgs(t, map[string]any{"title": "New", "priority": 3}, []int64{3, 12, 56})
 
@@ -211,8 +209,7 @@ func TestTasksBulkUpdatePreview(t *testing.T) {
 func TestTasksBulkUpdatePreviewGETFailureWritesNothing(t *testing.T) {
 	server, requests := newBulkUpdateServer(t, http.StatusOK, `{}`, map[string]int{"/api/v2/tasks/12": http.StatusNotFound})
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL, bulkUpdateToken)
 
 	var stdout, stderr bytes.Buffer
 	args := []string{"tasks", "bulk-update", "--ids", "3,12,56", "--title", "New"}
@@ -230,8 +227,7 @@ func TestTasksBulkUpdateApply(t *testing.T) {
 	putBody := `{"task_ids":[3,12,56],"fields":["title","priority"],"values":{"title":"New","priority":3},"tasks":[{"id":3,"title":"New"},{"id":12,"title":"New"}]}`
 	server, requests := newBulkUpdateServer(t, http.StatusOK, putBody, nil)
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL, bulkUpdateToken)
 
 	changes := map[string]any{"title": "New", "priority": 3}
 	token := bulkUpdateTokenForArgs(t, changes, []int64{3, 12, 56})
@@ -300,8 +296,7 @@ func TestTasksBulkUpdateApply(t *testing.T) {
 func TestTasksBulkUpdateApplyServerOmitsTasks(t *testing.T) {
 	server, _ := newBulkUpdateServer(t, http.StatusOK, `{"task_ids":[3],"fields":["description"],"values":{"description":"Done"}}`, nil)
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL, bulkUpdateToken)
 
 	token := bulkUpdateTokenForArgs(t, map[string]any{"description": "Done"}, []int64{3})
 	var stdout, stderr bytes.Buffer
@@ -324,8 +319,7 @@ func TestTasksBulkUpdateApplyServerOmitsTasks(t *testing.T) {
 func TestTasksBulkUpdateApplyPreflightGETFailureZeroPUT(t *testing.T) {
 	server, requests := newBulkUpdateServer(t, http.StatusOK, `{}`, map[string]int{"/api/v2/tasks/56": http.StatusForbidden})
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL, bulkUpdateToken)
 
 	token := bulkUpdateTokenForArgs(t, map[string]any{"title": "New"}, []int64{3, 12, 56})
 	var stdout, stderr bytes.Buffer
@@ -343,8 +337,7 @@ func TestTasksBulkUpdateApplyPreflightGETFailureZeroPUT(t *testing.T) {
 func TestTasksBulkUpdateBulkForbiddenIsSafe(t *testing.T) {
 	server, requests := newBulkUpdateServer(t, http.StatusForbidden, ``, nil)
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL+"?base-secret#fragment-secret", bulkUpdateToken)
 
 	token := bulkUpdateTokenForArgs(t, map[string]any{"title": "New"}, []int64{3})
 	var stdout, stderr bytes.Buffer
@@ -383,8 +376,7 @@ func TestTasksBulkUpdateTransportErrorIsUnknownAndSafe(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-	t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+	configureTest(t, server.URL+"?base-secret#fragment-secret", bulkUpdateToken)
 
 	token := bulkUpdateTokenForArgs(t, map[string]any{"title": "New"}, []int64{3})
 	var stdout, stderr bytes.Buffer
@@ -406,8 +398,7 @@ func TestTasksBulkUpdatePreflightIDMismatchIsSafe(t *testing.T) {
 	} {
 		server, requests := newBulkUpdateServerWithGETBodies(t, http.StatusOK, `{}`, nil,
 			map[string]string{"/api/v2/tasks/12": body})
-		t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-		t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+		configureTest(t, server.URL+"?base-secret#fragment-secret", bulkUpdateToken)
 
 		token := bulkUpdateTokenForArgs(t, map[string]any{"title": "New"}, []int64{3, 12, 56})
 		var stdout, stderr bytes.Buffer
@@ -443,8 +434,7 @@ func TestTasksBulkUpdateStatusErrorClassification(t *testing.T) {
 	}
 	for _, tc := range cases {
 		server, _ := newBulkUpdateServer(t, tc.status, `{"message":"server detail with `+bulkUpdateToken+`"}`, nil)
-		t.Setenv("VIKUNJA_URL", server.URL+"?base-secret#fragment-secret")
-		t.Setenv("VIKUNJA_TOKEN", bulkUpdateToken)
+		configureTest(t, server.URL+"?base-secret#fragment-secret", bulkUpdateToken)
 
 		token := bulkUpdateTokenForArgs(t, map[string]any{"title": "New"}, []int64{3})
 		var stdout, stderr bytes.Buffer

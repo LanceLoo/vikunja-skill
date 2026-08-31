@@ -31,8 +31,7 @@ func TestTasksList(t *testing.T) {
 		_, _ = w.Write([]byte(`{"items":[],"total":0,"page":1,"per_page":50,"total_pages":0}`))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	cases := [][]string{
 		{"tasks", "list"},
@@ -88,8 +87,7 @@ func TestTasksGetAndNotFound(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"tasks", "get", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
@@ -140,8 +138,7 @@ func TestTaskRelations(t *testing.T) {
 		_, _ = w.Write([]byte(response))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"tasks", "relations", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 || stdout.String() != related+"\n" {
@@ -174,8 +171,7 @@ func TestTaskRelationsInvalidArgumentsDoNotRequest(t *testing.T) {
 		{"://invalid-url", ""},
 		{server.URL, ""},
 	} {
-		t.Setenv("VIKUNJA_URL", config.baseURL)
-		t.Setenv("VIKUNJA_TOKEN", config.token)
+		configureTest(t, config.baseURL, config.token)
 		for _, args := range [][]string{
 			{"tasks", "relations"},
 			{"tasks", "relations", "0"},
@@ -216,8 +212,7 @@ func TestTaskRelationsResourceErrorsAreSafe(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(test.handler)
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?"+baseSecret+"#"+fragmentSecret)
-			t.Setenv("VIKUNJA_TOKEN", token)
+			configureTest(t, server.URL+"?"+baseSecret+"#"+fragmentSecret, token)
 			var stdout, stderr bytes.Buffer
 			if code := run([]string{"tasks", "relations", "42"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.message) {
 				t.Fatalf("code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
@@ -232,8 +227,7 @@ func TestTaskRelationsResourceErrorsAreSafe(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	baseURL := server.URL
 	server.Close()
-	t.Setenv("VIKUNJA_URL", baseURL+"?"+baseSecret+"#"+fragmentSecret)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, baseURL+"?"+baseSecret+"#"+fragmentSecret, token)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"tasks", "relations", "42"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "request to") || strings.Contains(stderr.String(), token) || strings.Contains(stderr.String(), baseSecret) || strings.Contains(stderr.String(), fragmentSecret) {
 		t.Fatalf("transport: code = %d stdout %q stderr %q", code, stdout.String(), stderr.String())
@@ -246,8 +240,7 @@ func TestTasksPrettyInvalidArgumentsWriteOnlyStderr(t *testing.T) {
 		requests++
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--pretty", "tasks", "get", "not-an-id"}, &stdout, &stderr); code != 2 {
@@ -267,8 +260,7 @@ func TestTasksInvalidArgumentsDoNotRequest(t *testing.T) {
 		requests++
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 
 	for _, args := range [][]string{
 		{"tasks", "list", "--project", "0"},
@@ -325,8 +317,7 @@ func TestTaskMutationsPreviewDoesNotWrite(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":42,"title":"Current","done":false}`))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	var stdout, stderr bytes.Buffer
 	compactCreate := []string{"tasks", "create", "7", "--title", "New", "--description", "details", "--priority", "2", "--due-date", "2026-08-06T10:00:00Z"}
@@ -381,9 +372,8 @@ func TestTaskMutationsApplyWrites(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":42,"title":"Written","metadata":{"source":"test"}}`))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
 	token := "test-secret-token"
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	for _, args := range [][]string{
 		{"--pretty", "tasks", "create", "7", "--title", "New", "--due-date", "2026-08-06T10:00:00Z", "--apply"},
@@ -442,8 +432,7 @@ func TestTaskMutationApplyResourceErrorsAreSafe(t *testing.T) {
 			t.Run(strings.Join(command[1:3], "-")+"-"+test.name, func(t *testing.T) {
 				server := httptest.NewServer(test.handler)
 				defer server.Close()
-				t.Setenv("VIKUNJA_URL", server.URL+"?"+baseSecret+"#"+fragmentSecret)
-				t.Setenv("VIKUNJA_TOKEN", token)
+				configureTest(t, server.URL+"?"+baseSecret+"#"+fragmentSecret, token)
 				var stdout, stderr bytes.Buffer
 				if code := run(command, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.message) {
 					t.Fatalf("run(%v) = %d, stdout %q, stderr %q", command, code, stdout.String(), stderr.String())
@@ -459,8 +448,7 @@ func TestTaskMutationApplyResourceErrorsAreSafe(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 			baseURL := server.URL
 			server.Close()
-			t.Setenv("VIKUNJA_URL", baseURL+"?"+baseSecret+"#"+fragmentSecret)
-			t.Setenv("VIKUNJA_TOKEN", token)
+			configureTest(t, baseURL+"?"+baseSecret+"#"+fragmentSecret, token)
 			var stdout, stderr bytes.Buffer
 			if code := run(command, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "request to") {
 				t.Fatalf("run(%v) = %d, stdout %q, stderr %q", command, code, stdout.String(), stderr.String())
@@ -478,8 +466,7 @@ func TestTaskMutationInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 	for _, args := range [][]string{
 		{"tasks", "create", "0", "--title", "New"},
 		{"tasks", "create", "7"},
@@ -514,8 +501,7 @@ func TestTaskComments(t *testing.T) {
 		_, _ = w.Write([]byte(response))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 	for _, args := range [][]string{{"tasks", "comments", "42"}, {"tasks", "comments", "42", "--page", "2", "--per-page", "25", "--q", "find me", "--order-by", "desc"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 0 || stderr.Len() != 0 || stdout.String() != response+"\n" {
@@ -531,8 +517,7 @@ func TestTaskCommentsInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 	for _, args := range [][]string{{"tasks", "comments", "0"}, {"tasks", "comments", "nope"}, {"tasks", "comments", "1", "--page", "0"}, {"tasks", "comments", "1", "--per-page", "1001"}, {"tasks", "comments", "1", "--order-by", "newest"}, {"tasks", "comments", "1", "--format", "markdown"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
@@ -553,8 +538,7 @@ func TestTaskCommentsResourceErrorsAreSafe(t *testing.T) {
 		t.Run(http.StatusText(test.status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(test.status) }))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?base-secret")
-			t.Setenv("VIKUNJA_TOKEN", token)
+			configureTest(t, server.URL+"?base-secret", token)
 			var stdout, stderr bytes.Buffer
 			if code := run([]string{"tasks", "comments", "42", "--q", "search-secret"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.message) || strings.Contains(stderr.String(), token) || strings.Contains(stderr.String(), "base-secret") || strings.Contains(stderr.String(), "search-secret") {
 				t.Fatalf("code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
@@ -575,8 +559,7 @@ func TestTaskAttachments(t *testing.T) {
 		_, _ = w.Write([]byte(response))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 	for _, args := range [][]string{{"tasks", "attachments", "42"}, {"tasks", "attachments", "42", "--page", "2", "--per-page", "25"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 0 || stderr.Len() != 0 || stdout.String() != response+"\n" {
@@ -592,8 +575,7 @@ func TestTaskAttachmentsInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 	for _, args := range [][]string{{"tasks", "attachments", "0"}, {"tasks", "attachments", "nope"}, {"tasks", "attachments", "1", "--page", "0"}, {"tasks", "attachments", "1", "--per-page", "1001"}, {"tasks", "attachments", "1", "--q", "ignored"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
@@ -614,8 +596,7 @@ func TestTaskAttachmentsResourceErrorsAreSafe(t *testing.T) {
 		t.Run(http.StatusText(test.status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(test.status) }))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?base-secret")
-			t.Setenv("VIKUNJA_TOKEN", token)
+			configureTest(t, server.URL+"?base-secret", token)
 			var stdout, stderr bytes.Buffer
 			if code := run([]string{"tasks", "attachments", "42"}, &stdout, &stderr); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.message) || strings.Contains(stderr.String(), token) || strings.Contains(stderr.String(), "base-secret") {
 				t.Fatalf("code = %d, stdout %q stderr %q", code, stdout.String(), stderr.String())
@@ -645,8 +626,7 @@ func TestLabelsListAndTaskLabels(t *testing.T) {
 		_, _ = w.Write([]byte(`{"items":[{"id":1,"unknown":null}],"total":1,"page":2,"per_page":25,"total_pages":1,"$schema":"https://example.test/labels.json","extra":null}`))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 	for _, args := range [][]string{{"labels", "list", "--page", "2", "--per-page", "25", "--q", "find me", "--format", "html"}, {"labels", "list", "--page", "2", "--per-page", "25", "--q", "find me", "--format", "markdown"}, {"labels", "list", "--page", "2", "--per-page", "25", "--q", "find me"}, {"tasks", "labels", "42", "--page", "2", "--per-page", "25", "--q", "find me"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code != 0 || stderr.Len() != 0 || stdout.String() != "{\"items\":[{\"id\":1,\"unknown\":null}],\"total\":1,\"page\":2,\"per_page\":25,\"total_pages\":1,\"$schema\":\"https://example.test/labels.json\",\"extra\":null}\n" {

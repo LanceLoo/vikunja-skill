@@ -25,8 +25,7 @@ func TestProjectsList(t *testing.T) {
 		_, _ = w.Write([]byte(`{"items":[],"total":0,"page":1,"per_page":50,"total_pages":0}`))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	for _, args := range [][]string{{"projects", "list"}, {"projects", "list", "--page", "2", "--per-page", "25"}} {
 		var stdout, stderr bytes.Buffer
@@ -67,8 +66,7 @@ func TestProjectsGetAndNotFound(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"projects", "get", "42"}, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
@@ -100,8 +98,7 @@ func TestProjectsGetRejectsInvalidIDBeforeRequest(t *testing.T) {
 		requests++
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "test-secret-token")
+	configureTest(t, server.URL, "test-secret-token")
 
 	for _, id := range []string{"abc", "-1", "9223372036854775808"} {
 		var stdout, stderr bytes.Buffer

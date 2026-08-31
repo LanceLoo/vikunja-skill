@@ -29,8 +29,7 @@ func TestAttachmentDeleteHelpAndLocalGates(t *testing.T) {
 	requests := 0
 	s := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, s.URL, "secret")
 	for _, a := range [][]string{{}, {"--task-id", "8", "--attachment-id", "0"}, {"--task-id", "8", "--attachment-id", "2", "--confirm", "sha256:" + strings.Repeat("a", 64)}, {"--task-id", "8", "--attachment-id", "2", "--apply", "--confirm", "bad"}, {"--task-id", "8", "--attachment-id", "2", "--all"}} {
 		out.Reset()
 		err.Reset()
@@ -67,8 +66,7 @@ func TestAttachmentDeletePreviewAndHappyApply(t *testing.T) {
 		}
 	}))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, s.URL, "secret")
 	var pOut, pErr bytes.Buffer
 	if code := run(attachmentDeleteArgs("--task-id", "8", "--attachment-id", "4"), &pOut, &pErr); code != 0 {
 		t.Fatalf("preview %d %s", code, pErr.String())
@@ -97,8 +95,7 @@ func TestAttachmentDeletePreflightNotFoundDoesNotDelete(t *testing.T) {
 	n := 0
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { n++; w.WriteHeader(http.StatusNotFound) }))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, s.URL, "secret")
 	var out, err bytes.Buffer
 	if code := run(attachmentDeleteArgs("--task-id", "8", "--attachment-id", "4"), &out, &err); code != 1 || n != 1 || !strings.Contains(err.String(), "任务或附件不存在") {
 		t.Fatalf("code=%d n=%d err=%s", code, n, err.String())
@@ -123,8 +120,7 @@ func TestAttachmentDeleteFailureReconcilesWithoutSuccessClaim(t *testing.T) {
 				}
 			}))
 			defer s.Close()
-			t.Setenv("VIKUNJA_URL", s.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, s.URL, "secret")
 			token, _ := attachmentDeleteConfirmationToken(8, 4)
 			var out, err bytes.Buffer
 			if code := run(attachmentDeleteArgs("--task-id", "8", "--attachment-id", "4", "--apply", "--confirm", token), &out, &err); code != 1 || n != 3 || out.Len() != 0 || !strings.Contains(err.String(), "不能据此推断") {
@@ -155,8 +151,7 @@ func TestAttachmentDeletePost204PresentAndReadbackError(t *testing.T) {
 				}
 			}))
 			defer s.Close()
-			t.Setenv("VIKUNJA_URL", s.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, s.URL, "secret")
 			token, _ := attachmentDeleteConfirmationToken(8, 4)
 			var out, err bytes.Buffer
 			if code := run(attachmentDeleteArgs("--task-id", "8", "--attachment-id", "4", "--apply", "--confirm", token), &out, &err); code != 1 || n != 3 || out.Len() != 0 || !strings.Contains(err.String(), "HTTP 204") {
@@ -201,8 +196,7 @@ func TestAttachmentDeleteTransportFailureReconcilesWithoutRetry(t *testing.T) {
 		}
 	}))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, s.URL, "secret")
 	token, _ := attachmentDeleteConfirmationToken(8, 4)
 	var out, stderr bytes.Buffer
 	if code := run(attachmentDeleteArgs("--task-id", "8", "--attachment-id", "4", "--apply", "--confirm", token), &out, &stderr); code != 1 {

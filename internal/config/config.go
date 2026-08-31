@@ -17,23 +17,11 @@ type Config struct {
 	Token   string
 }
 
-// Load reads configuration from the environment, filling missing values from
-// .env in the current working directory.
+// Load reads configuration exclusively from .env in the current working directory.
 func Load() (Config, error) {
-	values := map[string]string{
-		"VIKUNJA_URL":   os.Getenv("VIKUNJA_URL"),
-		"VIKUNJA_TOKEN": os.Getenv("VIKUNJA_TOKEN"),
-	}
-	if values["VIKUNJA_URL"] == "" || values["VIKUNJA_TOKEN"] == "" {
-		fileValues, err := readDotEnv(filepath.Join(".", ".env"))
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return Config{}, err
-		}
-		for key := range values {
-			if values[key] == "" {
-				values[key] = fileValues[key]
-			}
-		}
+	values, err := readDotEnv(filepath.Join(".", ".env"))
+	if err != nil {
+		return Config{}, fmt.Errorf("cannot load .env: %w", err)
 	}
 	if values["VIKUNJA_URL"] == "" {
 		return Config{}, errors.New("missing required configuration: VIKUNJA_URL")

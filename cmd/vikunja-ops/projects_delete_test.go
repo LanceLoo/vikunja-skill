@@ -67,8 +67,7 @@ func TestProjectsDeleteInvalidArgumentsMakeNoRequests(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	for _, args := range [][]string{{}, {"0"}, {"1", "--confirm", "sha256:" + strings.Repeat("a", 64)}, {"1", "--apply"}, {"1", "--bogus"}, {"1", "--apply", "--apply", "--confirm", "sha256:" + strings.Repeat("a", 64)}} {
 		if got := runProjectsDelete(args, io.Discard, io.Discard); got != 2 {
 			t.Errorf("%v: code %d", args, got)
@@ -102,8 +101,7 @@ func TestProjectsDeleteEmptyArraysAndApplySequence(t *testing.T) {
 		deletePreviewFixture(t)(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	var preview bytes.Buffer
 	if runProjectsDelete([]string{"1"}, &preview, io.Discard) != 0 {
 		t.Fatal("preview")
@@ -140,8 +138,7 @@ func TestProjectsDeleteStaleTokenAndMalformedScanNeverDelete(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	if code := runProjectsDelete([]string{"1"}, io.Discard, io.Discard); code == 0 {
 		t.Fatal("null items preview succeeded")
 	}
@@ -159,8 +156,7 @@ func TestProjectsDeleteDefaultRootOrDescendantRejectsWithoutDeleteOrReadback(t *
 			requests := []deleteRequest{}
 			server := httptest.NewServer(deleteScopeHandler(t, defaultID, true, 10, &requests))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 			for _, args := range [][]string{{"1"}, {"1", "--apply", "--confirm", "sha256:" + strings.Repeat("a", 64)}} {
 				if code := runProjectsDelete(args, io.Discard, io.Discard); code == 0 {
 					t.Fatalf("default %d qualified", defaultID)
@@ -201,8 +197,7 @@ func TestProjectsDeleteDeepDefaultGrandchildRejectsWithoutDeleteOrReadback(t *te
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 
 	for _, args := range [][]string{
 		{"1"},
@@ -240,8 +235,7 @@ func TestProjectsDeleteApplyDefaultOrScopeChangeRejectsWithoutAttempt(t *testing
 				deleteScopeHandler(t, 9, child, task, &requests)(w, r)
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 			token := previewToken(t, 1)
 			requests = nil
 			if code := runProjectsDelete([]string{"1", "--apply", "--confirm", token}, io.Discard, io.Discard); code == 0 {
@@ -273,8 +267,7 @@ func TestProjectsDeleteNon204StillDoesOneReadbackAndFails(t *testing.T) {
 		deleteScopeHandler(t, 9, false, 10, &requests)(w, r)
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	token := previewToken(t, 1)
 	requests = nil
 	var err bytes.Buffer
@@ -298,8 +291,7 @@ func TestProjectsDeleteNon204StillDoesOneReadbackAndFails(t *testing.T) {
 func TestProjectsDeletePreviewIsGetOnlyAndShowsQualifiedArrays(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(deletePreviewFixture(t)))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	var out bytes.Buffer
 	if got := runProjectsDelete([]string{"1"}, &out, io.Discard); got != 0 {
 		t.Fatalf("code %d", got)
@@ -340,8 +332,7 @@ func TestProjectsDeleteChildApplyDeletesAndReadsExactTargetOnly(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 
 	var preview bytes.Buffer
 	if code := runProjectsDelete([]string{"2"}, &preview, io.Discard); code != 0 {
@@ -396,8 +387,7 @@ func TestProjectsDeleteChildDefaultInScopeRejectsWithoutDeleteOrReadback(t *test
 				}
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 			if code := runProjectsDelete([]string{"2", "--apply", "--confirm", "sha256:" + strings.Repeat("a", 64)}, io.Discard, io.Discard); code == 0 {
 				t.Fatal("in-scope default qualified")
 			}
@@ -473,8 +463,7 @@ func TestProjectsDeleteChildTokenRejectsObservableDriftWithoutAttempt(t *testing
 				}
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 
 			var preview bytes.Buffer
 			if code := runProjectsDelete([]string{"2"}, &preview, io.Discard); code != 0 {

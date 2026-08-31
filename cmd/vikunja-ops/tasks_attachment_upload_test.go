@@ -22,8 +22,7 @@ func TestAttachmentUploadValidationDoesNotRequest(t *testing.T) {
 	requests := 0
 	s := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "upload-secret")
+	configureTest(t, s.URL, "upload-secret")
 	file := filepath.Join(t.TempDir(), "a.txt")
 	if err := os.WriteFile(file, []byte("a"), 0600); err != nil {
 		t.Fatal(err)
@@ -127,8 +126,7 @@ func TestAttachmentUploadPreviewAndApply(t *testing.T) {
 		}
 	}))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "upload-secret")
+	configureTest(t, s.URL, "upload-secret")
 	var previewOut, previewErr bytes.Buffer
 	if code := run(uploadArgs("--task-id", "12", "--file", file), &previewOut, &previewErr); code != 0 {
 		t.Fatalf("preview %d %s", code, previewErr.String())
@@ -168,8 +166,7 @@ func TestAttachmentUploadEmptyAndPostFailureNoReadback(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "upload-secret")
+	configureTest(t, s.URL, "upload-secret")
 	var pOut, pErr bytes.Buffer
 	if code := run(uploadArgs("--task-id", "7", "--file", file), &pOut, &pErr); code != 0 {
 		t.Fatalf("preview: %d %s", code, pErr.String())
@@ -206,8 +203,7 @@ func TestAttachmentUploadChangeBeforeSnapshotDoesNotLoadConfigOrRequest(t *testi
 		_ = os.WriteFile(path, []byte("after"), 0600)
 		return original(path, manifest)
 	}
-	t.Setenv("VIKUNJA_URL", "")
-	t.Setenv("VIKUNJA_TOKEN", "")
+	configureTest(t, "", "")
 	var out, stderr bytes.Buffer
 	if code := run(uploadArgs("--task-id", "3", "--file", clean, "--apply", "--confirm", token), &out, &stderr); code != 1 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
@@ -256,8 +252,7 @@ func TestAttachmentUploadNullErrorsResponseIsReadBackAndVerified(t *testing.T) {
 		}
 	}))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "upload-secret")
+	configureTest(t, s.URL, "upload-secret")
 	var out, stderr bytes.Buffer
 	if code := run(uploadArgs("--task-id", "22", "--file", file, "--apply", "--confirm", token), &out, &stderr); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
@@ -297,8 +292,7 @@ func TestAttachmentUploadPost201InvalidResponseSkipsReadback(t *testing.T) {
 		}
 	}))
 	defer s.Close()
-	t.Setenv("VIKUNJA_URL", s.URL)
-	t.Setenv("VIKUNJA_TOKEN", "upload-secret")
+	configureTest(t, s.URL, "upload-secret")
 	var out, stderr bytes.Buffer
 	if code := run(uploadArgs("--task-id", "23", "--file", file, "--apply", "--confirm", token), &out, &stderr); code != 1 {
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())

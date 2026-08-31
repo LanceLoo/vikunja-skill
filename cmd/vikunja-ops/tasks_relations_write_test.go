@@ -53,8 +53,7 @@ func TestTaskRelationsWriteLocalValidationAndHelp(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	bad := [][]string{
 		{"tasks", "relations", "create"},
 		{"tasks", "relations", "create", "--task-id", "12", "--other-task-id", "12", "--relation-kind", "related"},
@@ -84,8 +83,7 @@ func TestTaskRelationsWriteLocalValidationAndHelp(t *testing.T) {
 }
 
 func TestTaskRelationsWriteBadFormsPrecedeMissingConfig(t *testing.T) {
-	t.Setenv("VIKUNJA_URL", "")
-	t.Setenv("VIKUNJA_TOKEN", "")
+	configureTest(t, "", "")
 	for _, args := range [][]string{
 		{"tasks", "relations", "create", "--task-id", "0", "--other-task-id", "34", "--relation-kind", "related"},
 		{"tasks", "relations", "delete", "--task-id", "12", "--other-task-id", "34", "--relation-kind", " related"},
@@ -106,8 +104,7 @@ func TestTaskRelationsReadRetained(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":42,"related_tasks":{"unknown":null,"related":null,"metadata":{"x":1}}}`))
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "secret")
+	configureTest(t, server.URL, "secret")
 	var out, err bytes.Buffer
 	if code := run([]string{"tasks", "relations", "42"}, &out, &err); code != 0 || err.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), err.String())
@@ -152,8 +149,7 @@ func TestTaskRelationPreviewAndApply(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "secret")
+			configureTest(t, server.URL, "secret")
 			base := []string{"tasks", "relations", operation, "--task-id", "12", "--other-task-id", "34", "--relation-kind", "related"}
 			var out, err bytes.Buffer
 			if code := run(base, &out, &err); code != 0 || len(requests) != 1 {
@@ -211,8 +207,7 @@ func TestTaskRelationWriteFailureStillReconcilesWithoutLeaks(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?url-secret#fragment-secret")
-			t.Setenv("VIKUNJA_TOKEN", "credential-secret")
+			configureTest(t, server.URL+"?url-secret#fragment-secret", "credential-secret")
 			args := []string{"tasks", "relations", operation, "--task-id", "12", "--other-task-id", "34", "--relation-kind", "related", "--apply", "--confirm", relationToken(t, "relation_"+operation)}
 			var out, err bytes.Buffer
 			if code := run(args, &out, &err); code != 1 || out.Len() != 0 || len(requests) != 3 {
@@ -255,8 +250,7 @@ func TestTaskRelationAcknowledgedWriteReadbackFailureOrMismatch(t *testing.T) {
 					}
 				}))
 				defer server.Close()
-				t.Setenv("VIKUNJA_URL", server.URL)
-				t.Setenv("VIKUNJA_TOKEN", "secret")
+				configureTest(t, server.URL, "secret")
 				args := []string{"tasks", "relations", operation, "--task-id", "12", "--other-task-id", "34", "--relation-kind", "related", "--apply", "--confirm", relationToken(t, "relation_"+operation)}
 				var out, err bytes.Buffer
 				if code := run(args, &out, &err); code != 1 || out.Len() != 0 || len(requests) != 3 {

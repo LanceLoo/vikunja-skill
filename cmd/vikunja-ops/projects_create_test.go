@@ -14,8 +14,7 @@ func TestProjectsCreateHelpValidationAndPreview(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", "token")
+	configureTest(t, server.URL, "token")
 	for _, args := range [][]string{
 		{"projects", "create", "--help"},
 		{"projects", "--help"},
@@ -89,8 +88,7 @@ func TestProjectsCreateNoTrustedIDDoesNotReconcile(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?url-secret#fragment-secret")
-			t.Setenv("VIKUNJA_TOKEN", "credential-secret")
+			configureTest(t, server.URL+"?url-secret#fragment-secret", "credential-secret")
 			var out, err bytes.Buffer
 			if code := run([]string{"projects", "create", "--title", "sensitive-title", "--apply"}, &out, &err); code != 1 || out.Len() != 0 || requests != 1 {
 				t.Fatalf("code=%d requests=%d stdout=%q stderr=%q", code, requests, out.String(), err.String())
@@ -125,8 +123,7 @@ func TestProjectsCreateReadbackMismatch(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL)
-			t.Setenv("VIKUNJA_TOKEN", "credential-secret")
+			configureTest(t, server.URL, "credential-secret")
 			var out, err bytes.Buffer
 			if code := run([]string{"projects", "create", "--title", "Root", "--apply"}, &out, &err); code != 1 || out.Len() != 0 || requests != 2 {
 				t.Fatalf("code=%d requests=%d stdout=%q stderr=%q", code, requests, out.String(), err.String())
@@ -164,8 +161,7 @@ func TestProjectsCreateApplyAndPretty(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", token)
+	configureTest(t, server.URL, token)
 	var out, err bytes.Buffer
 	if code := run([]string{"--pretty", "projects", "create", "--title", "Root", "--apply"}, prettyJSONWriter{&out}, &err); code != 0 || err.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), err.String())
@@ -209,8 +205,7 @@ func TestProjectsCreateFailureAndReconciliationAreSafe(t *testing.T) {
 				w.WriteHeader(tc.getStatus)
 			}))
 			defer server.Close()
-			t.Setenv("VIKUNJA_URL", server.URL+"?url-secret#fragment-secret")
-			t.Setenv("VIKUNJA_TOKEN", "credential-secret")
+			configureTest(t, server.URL+"?url-secret#fragment-secret", "credential-secret")
 			var out, err bytes.Buffer
 			if code := run([]string{"projects", "create", "--title", "Root", "--apply"}, &out, &err); code != 1 || out.Len() != 0 {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), err.String())
@@ -242,8 +237,7 @@ func TestProjectsCreateRedirectIsRejectedWithoutCredentialLeak(t *testing.T) {
 		http.Redirect(w, r, target.URL+"/captured", http.StatusFound)
 	}))
 	defer origin.Close()
-	t.Setenv("VIKUNJA_URL", origin.URL+"?url-secret#fragment-secret")
-	t.Setenv("VIKUNJA_TOKEN", "credential-secret")
+	configureTest(t, origin.URL+"?url-secret#fragment-secret", "credential-secret")
 	var out, err bytes.Buffer
 	if code := run([]string{"projects", "create", "--title", "Root", "--apply"}, &out, &err); code != 1 || out.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), err.String())

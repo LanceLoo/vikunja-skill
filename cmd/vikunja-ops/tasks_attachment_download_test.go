@@ -124,8 +124,7 @@ func countLeftoverTemps(t *testing.T, destination string) int {
 
 func runAttachmentDownload(t *testing.T, server *httptest.Server, extra ...string) (int, string, string) {
 	t.Helper()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", attachmentDownloadToken)
+	configureTest(t, server.URL, attachmentDownloadToken)
 	var stdout, stderr bytes.Buffer
 	code := run(attachmentDownloadArgs(extra...), &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
@@ -150,8 +149,7 @@ func TestTaskAttachmentDownloadInvalidArgumentsDoNotRequest(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer server.Close()
-	t.Setenv("VIKUNJA_URL", server.URL)
-	t.Setenv("VIKUNJA_TOKEN", attachmentDownloadToken)
+	configureTest(t, server.URL, attachmentDownloadToken)
 
 	parent := t.TempDir()
 	existing := filepath.Join(parent, "existing.bin")

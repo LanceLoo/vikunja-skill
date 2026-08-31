@@ -1,7 +1,7 @@
 ---
 name: vikunja-ops
 description: "Use vikunja-ops for Vikunja doctor checks; read-only queries of projects, labels, tasks, relations, comments, and attachments; and preview/apply controlled writes for the implemented project, task, relation, and attachment operations."
-compatibility: "Requires a caller-provided vikunja-ops binary or a Go source execution environment explicitly authorized by the caller, plus a reachable Vikunja server configured via VIKUNJA_URL and VIKUNJA_TOKEN."
+compatibility: "Requires a caller-provided vikunja-ops binary or a Go source execution environment explicitly authorized by the caller, plus a reachable Vikunja server configured by VIKUNJA_URL and VIKUNJA_TOKEN in ./.env."
 ---
 
 # vikunja-ops AI 调用指南
@@ -17,9 +17,9 @@ compatibility: "Requires a caller-provided vikunja-ops binary or a Go source exe
 - `VIKUNJA_URL`
 - `VIKUNJA_TOKEN`
 
-当前实现优先使用进程环境变量中的完整 `VIKUNJA_URL`/`VIKUNJA_TOKEN` 对。任一变量缺失时，才读取进程当前工作目录的 `./.env`，且只补齐缺失项；两者均已提供时不读取该文件。它不搜索可执行文件、源码或 skill 所在目录。
+当前实现只读取进程当前工作目录的 `./.env`；该文件必须同时包含有效的 `VIKUNJA_URL` 和 `VIKUNJA_TOKEN`。进程环境变量会被忽略；CLI 不搜索可执行文件、源码或 skill 所在目录。
 
-不得从任意或无关用户项目目录调用绝对路径 binary 并依赖该目录的 `.env`；不得只提供一个环境变量，让陌生当前工作目录中的 `.env` 补齐另一个；不得自动读取、复制或创建 `.env`。在确认 URL 和 Token 由同一受信来源完整提供前，不得运行 `doctor`，因为它会使用 Token 发送 GET 请求。
+不得从任意或无关用户项目目录调用绝对路径 binary 并依赖该目录的 `.env`；不得依赖进程环境变量，不得把 Token 作为命令参数传递，也不得自动读取内容、复制或创建 `.env`。在确认当前目录的 `.env` 由受信来源完整配置前，不得运行 `doctor`，因为它会使用 Token 发送 GET 请求。
 
 不得提交或输出真实 URL、Token、`Authorization` 请求头或敏感响应；引用执行结果前先移除敏感信息。生产环境或非完全受信网络应使用 HTTPS；Bearer Token 配合 HTTP 仅限明确受信的本机或隔离开发环境。
 
@@ -32,6 +32,8 @@ compatibility: "Requires a caller-provided vikunja-ops binary or a Go source exe
 `doctor` 检查配置、OpenAPI 可访问性、Token 验证和项目读取能力，且仅发送 GET；它不证明二进制版本或发行完整性。
 
 全局 `--pretty` 必须位于命令之前：`vikunja-ops --pretty <command> ...`，不能放在命令之后。
+
+`vikunja-ops --version` 可读取程序版本。顶层 `--help` 写入 stdout；顶层参数错误或缺失命令写入 stderr，并以退出码 `2` 结束。调用方不得把错误文本当作成功 JSON。
 
 ## 场景速查
 
@@ -58,7 +60,7 @@ compatibility: "Requires a caller-provided vikunja-ops binary or a Go source exe
 
 ## 必须遵守的调用流程
 
-1. 先确认执行入口，并在不输出值的前提下确认 `VIKUNJA_URL` 和 `VIKUNJA_TOKEN` 由同一受信来源完整提供；不能确认时停止并请求调用方配置。
+1. 先确认执行入口，并在不输出值的前提下确认当前工作目录的 `./.env` 同时包含由同一受信来源提供的 `VIKUNJA_URL` 和 `VIKUNJA_TOKEN`；不能确认时停止并请求调用方配置。
 2. 配置来源确认后运行 `doctor`。
 3. 写入前先用只读命令确认项目、任务和附件等目标 ID。
 4. 对任何写入或删除先运行 preview，不带 `--apply`。
