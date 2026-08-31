@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[0-9]*'
 
 permissions:
   contents: read
@@ -38,28 +38,55 @@ jobs:
       - name: Run tests
         run: go test ./...
 
-      - name: Build Windows release package
+      - name: Build release packages
         shell: bash
         run: |
+          set -euo pipefail
+
           tag="${GITHUB_REF_NAME}"
-          archive="vikunja-skill_${tag}_windows_amd64.zip"
           release_dir="release"
+          windows_archive="vikunja-skill_${tag}_windows_amd64.zip"
+          linux_amd64_archive="vikunja-skill_${tag}_linux_amd64.tar.gz"
+          linux_arm64_archive="vikunja-skill_${tag}_linux_arm64.tar.gz"
 
           mkdir -p "$release_dir"
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o "$release_dir/vikunja-ops.exe" ./cmd/vikunja-ops
           cp SKILL.md .env.example README.md "$release_dir/"
           (
             cd "$release_dir"
-            zip -r "../$archive" vikunja-ops.exe SKILL.md .env.example README.md
+            zip -r "../$windows_archive" vikunja-ops.exe SKILL.md .env.example README.md
           )
-          sha256sum "$archive" > "$archive.sha256"
-          cp "$archive.sha256" checksums.txt
+
+          for arch in amd64 arm64; do
+            package_dir="$release_dir/linux_$arch"
+            archive="vikunja-skill_${tag}_linux_${arch}.tar.gz"
+
+            mkdir -p "$package_dir"
+            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -o "$package_dir/vikunja-ops" ./cmd/vikunja-ops
+            chmod +x "$package_dir/vikunja-ops"
+            cp SKILL.md .env.example README.md "$package_dir/"
+            tar -C "$package_dir" -czf "$PWD/$archive" vikunja-ops SKILL.md .env.example README.md
+          done
+
+          sha256sum "$windows_archive" > "$windows_archive.sha256"
+          sha256sum "$linux_amd64_archive" > "$linux_amd64_archive.sha256"
+          sha256sum "$linux_arm64_archive" > "$linux_arm64_archive.sha256"
+          sha256sum "$windows_archive" "$linux_amd64_archive" "$linux_arm64_archive" > checksums.txt
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          set -euo pipefail
+
           tag="${GITHUB_REF_NAME}"
-          archive="vikunja-skill_${tag}_windows_amd64.zip"
-          gh release create "$tag" "$archive" "$archive.sha256" checksums.txt --verify-tag --generate-notes
+          windows_archive="vikunja-skill_${tag}_windows_amd64.zip"
+          linux_amd64_archive="vikunja-skill_${tag}_linux_amd64.tar.gz"
+          linux_arm64_archive="vikunja-skill_${tag}_linux_arm64.tar.gz"
+          gh release create "$tag" \
+            "$windows_archive" "$windows_archive.sha256" \
+            "$linux_amd64_archive" "$linux_amd64_archive.sha256" \
+            "$linux_arm64_archive" "$linux_arm64_archive.sha256" \
+            checksums.txt \
+            --verify-tag --generate-notes
